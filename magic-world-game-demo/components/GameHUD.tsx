@@ -1,17 +1,17 @@
 "use client"
 
 import {
-  SKILL_COOLDOWN, SKILL2_COOLDOWN, SKILL3_COOLDOWN, COMET_COOLDOWN,
-  ENERGY_REGEN_INTERVAL, COMET_COST,
+  ENERGY_REGEN_INTERVAL, MAX_WEAPON_LEVEL,
+  ELEMENTS, skillDamage, unlockedSlots,
   maxEnergyForStage, isBossStage,
-  hasFireRainUnlocked, hasFireStormUnlocked, hasCometUnlocked,
-  type GameState, type Stage,
+  type GameState, type Stage, type ElementKind,
 } from "@/hooks/useGameEngine"
 
 interface GameHUDProps {
   gameState: GameState
   stage: Stage
   testMode?: boolean
+  element?: ElementKind
 }
 
 const stageNames: Record<string, string> = {
@@ -57,48 +57,74 @@ interface SkillBarProps {
   currentEnergy: number
   color: string
   glowColor: string
-  description: string
+  damage: number
 }
 
-function SkillBar({ label, hotkey, cooldownMs, maxCooldownMs, energyCost, currentEnergy, color, glowColor, description }: SkillBarProps) {
+/**
+ * One skill tile. Four of these sit in a 2x2 grid so all of an element's
+ * skills fit inside the 450px-tall canvas.
+ */
+function SkillBar({ label, hotkey, cooldownMs, maxCooldownMs, energyCost, currentEnergy, color, glowColor, damage }: SkillBarProps) {
   const cdPct = cooldownMs > 0 ? (cooldownMs / maxCooldownMs) * 100 : 0
   const canUse = cooldownMs <= 0 && currentEnergy >= energyCost
   return (
     <div
-      className="rounded px-2 py-1.5"
+      className="rounded"
       style={{
+        padding: "3px 4px",
         background: "rgba(0,0,0,0.82)",
         border: `2px solid ${canUse ? color : "#374151"}`,
         boxShadow: canUse ? `0 0 6px ${glowColor}` : "none",
         transition: "border-color 0.2s, box-shadow 0.2s",
+        minWidth: 0,
       }}
     >
-      <div className="flex items-center gap-1 mb-1">
-        {/* hotkey badge */}
+      <div className="flex items-center gap-1">
         <span
-          className="rounded px-1"
+          className="rounded"
           style={{
-            fontSize: 6,
+            fontSize: 5,
             color: "#000",
             background: canUse ? color : "#6b7280",
-            minWidth: 14,
+            minWidth: 16,
             textAlign: "center",
-            lineHeight: "12px",
-            height: 12,
+            lineHeight: "10px",
+            height: 10,
             display: "inline-block",
           }}
         >
           {hotkey}
         </span>
-        <span style={{ fontSize: 6, color: canUse ? color : "#6b7280" }}>{label}</span>
+        <span
+          style={{
+            fontSize: 5, color: canUse ? color : "#6b7280",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+
+      <div
+        className="w-full rounded-sm overflow-hidden"
+        style={{ height: 4, background: "#1f2937", border: "1px solid #374151", margin: "3px 0" }}
+      >
+        {cdPct > 0 ? (
+          <div className="h-full" style={{ width: `${cdPct}%`, background: "#f59e0b", transition: "width 0.05s linear" }} />
+        ) : (
+          <div className="h-full" style={{ width: "100%", background: color, boxShadow: `0 0 4px ${glowColor}` }} />
+        )}
+      </div>
+
+      <div className="flex items-center gap-1">
         {/* energy cost dots */}
-        <span style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
+        <span style={{ display: "flex", gap: 1 }}>
           {Array.from({ length: energyCost }, (_, i) => (
             <span
               key={i}
               style={{
                 display: "inline-block",
-                width: 6, height: 6,
+                width: 5, height: 5,
                 borderRadius: 1,
                 background: i < currentEnergy ? "#7c3aed" : "#1e1b4b",
                 border: `1px solid ${i < currentEnergy ? "#a78bfa" : "#4c1d95"}`,
@@ -106,45 +132,33 @@ function SkillBar({ label, hotkey, cooldownMs, maxCooldownMs, energyCost, curren
             />
           ))}
         </span>
-        <span style={{ fontSize: 6, color: cdPct > 0 ? "#f59e0b" : "#22c55e", marginLeft: 4 }}>
+        <span style={{ fontSize: 5, color: "#9ca3af" }}>{damage}</span>
+        <span style={{ fontSize: 5, color: cdPct > 0 ? "#f59e0b" : "#22c55e", marginLeft: "auto" }}>
           {cdPct > 0 ? `${(cooldownMs / 1000).toFixed(1)}s` : "READY"}
         </span>
       </div>
-      <div
-        className="w-full rounded-sm overflow-hidden"
-        style={{ height: 5, background: "#1f2937", border: "1px solid #374151" }}
-      >
-        {cdPct > 0 ? (
-          <div
-            className="h-full"
-            style={{ width: `${cdPct}%`, background: "#f59e0b", transition: "width 0.05s linear" }}
-          />
-        ) : (
-          <div
-            className="h-full"
-            style={{ width: "100%", background: color, boxShadow: `0 0 4px ${glowColor}` }}
-          />
-        )}
-      </div>
-      <div style={{ fontSize: 5, color: "#6b7280", marginTop: 2 }}>{description}</div>
     </div>
   )
 }
 
-export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps) {
+export default function GameHUD({ gameState: gs, stage, testMode, element }: GameHUDProps) {
   const p = gs.player
   const hpPct = (p.hp / p.maxHp) * 100
   const boss = gs.enemies.find(e => e.type === "boss")
   const maxEnergy = getMaxEnergy(stage)
 
+  const elId = element ?? gs.element ?? "fire"
+  const el = ELEMENTS[elId]
+  const ec = el.colors
+  const slots = unlockedSlots(stage)
+  const maxed = gs.weaponLevel >= MAX_WEAPON_LEVEL
+
   const hpColor =
     hpPct > 60 ? "#22c55e" :
     hpPct > 30 ? "#f59e0b" : "#ef4444"
 
-  // Unlock skills per stage: Fire Rain from stage2, Fire Storm from stage3, Comet from stage5
-  const hasFireRain = hasFireRainUnlocked(stage)
-  const hasFireStorm = hasFireStormUnlocked(stage)
-  const hasComet = hasCometUnlocked(stage)
+  // Cooldown state per slot, in the same order as the element's skill list
+  const cooldowns = [gs.skillCooldown, gs.skill2Cooldown, gs.skill3Cooldown, gs.cometCooldown]
 
   return (
     <div
@@ -152,7 +166,23 @@ export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps
       style={{ fontFamily: "'Press Start 2P', monospace" }}
     >
       {/* Top-left: Player stats + skills panel */}
-      <div className="absolute top-3 left-3 flex flex-col gap-1.5" style={{ width: 230 }}>
+      <div className="absolute top-2 left-2 flex flex-col gap-1" style={{ width: 236 }}>
+
+        {/* Element / character badge */}
+        <div
+          className="rounded px-2 py-1.5 flex items-center gap-2"
+          style={{ background: "rgba(0,0,0,0.82)", border: `2px solid ${ec.primary}`, boxShadow: `0 0 8px ${ec.primary}55` }}
+        >
+          <span
+            className="rounded"
+            style={{
+              width: 12, height: 12, display: "inline-block",
+              background: ec.primary, boxShadow: `0 0 8px ${ec.primary}`,
+            }}
+          />
+          <span style={{ fontSize: 7, color: ec.primary, letterSpacing: 1 }}>{el.name}</span>
+          <span style={{ fontSize: 5, color: "#9ca3af", marginLeft: "auto" }}>{el.title}</span>
+        </div>
 
         {/* HP Bar */}
         <div
@@ -174,14 +204,16 @@ export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps
           </div>
         </div>
 
-        {/* EXP Bar + Weapon Level */}
+        {/* EXP Bar + Weapon Level — EXP is the damage track */}
         <div
           className="rounded px-2 py-1.5"
           style={{ background: "rgba(0,0,0,0.82)", border: "2px solid #22c55e" }}
         >
           <div className="flex items-center gap-2 mb-1">
             <span style={{ fontSize: 7, color: "#22c55e", letterSpacing: 1 }}>EXP</span>
-            <span style={{ fontSize: 6, color: "#86efac", marginLeft: "auto" }}>WEAPON LV {gs.weaponLevel}</span>
+            <span style={{ fontSize: 6, color: "#86efac", marginLeft: "auto" }}>
+              WEAPON LV {gs.weaponLevel}{maxed ? " MAX" : `/${MAX_WEAPON_LEVEL}`}
+            </span>
           </div>
           <div
             className="w-full rounded-sm overflow-hidden"
@@ -191,13 +223,13 @@ export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps
               className="h-full transition-all duration-100"
               style={{
                 width: `${Math.min((gs.exp / gs.expToNext) * 100, 100)}%`,
-                background: "#22c55e",
-                boxShadow: "0 0 6px #22c55e",
+                background: maxed ? "#fbbf24" : "#22c55e",
+                boxShadow: `0 0 6px ${maxed ? "#fbbf24" : "#22c55e"}`,
               }}
             />
           </div>
           <div style={{ fontSize: 5, color: "#6b7280", marginTop: 2 }}>
-            Kill enemies to fill. Boss defeat = weapon upgrade.
+            {maxed ? "MAX DAMAGE" : `${gs.exp}/${gs.expToNext} - levels add damage`}
           </div>
         </div>
 
@@ -218,8 +250,8 @@ export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps
                 key={i}
                 className="rounded-sm"
                 style={{
-                  width: 18,
-                  height: 18,
+                  width: 14,
+                  height: 14,
                   background: i < p.energy ? "#7c3aed" : "#1e1b4b",
                   border: `2px solid ${i < p.energy ? "#a78bfa" : "#4c1d95"}`,
                   boxShadow: i < p.energy ? "0 0 7px #7c3aed" : "none",
@@ -230,63 +262,23 @@ export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps
           </div>
         </div>
 
-        {/* Skill 1 — Fireball (always available) */}
-        <SkillBar
-          label="FIREBALL"
-          hotkey="Z/J"
-          cooldownMs={gs.skillCooldown}
-          maxCooldownMs={SKILL_COOLDOWN}
-          energyCost={1}
-          currentEnergy={p.energy}
-          color="#fb923c"
-          glowColor="#f97316"
-          description={`Shoots a fireball  ${30 + (gs.weaponLevel - 1) * 15} DMG`}
-        />
-
-        {/* Skill 2 — Fire Rain (level 1-2+) */}
-        {hasFireRain && (
-          <SkillBar
-            label="FIRE RAIN"
-            hotkey="X"
-            cooldownMs={gs.skill2Cooldown}
-            maxCooldownMs={SKILL2_COOLDOWN}
-            energyCost={2}
-            currentEnergy={p.energy}
-            color="#ef4444"
-            glowColor="#dc2626"
-            description={`AOE rain  ${50 + (gs.weaponLevel - 1) * 20} DMG  costs 2`}
-          />
-        )}
-
-        {/* Skill 3 — Fire Storm (level 1-3+) */}
-        {hasFireStorm && (
-          <SkillBar
-            label="FIRE STORM"
-            hotkey="C"
-            cooldownMs={gs.skill3Cooldown}
-            maxCooldownMs={SKILL3_COOLDOWN}
-            energyCost={3}
-            currentEnergy={p.energy}
-            color="#f97316"
-            glowColor="#ea580c"
-            description={`Burst storm  ${70 + (gs.weaponLevel - 1) * 25} DMG  costs 3`}
-          />
-        )}
-
-        {/* Skill 4 — Comet (Dark Castle / stage2+) */}
-        {hasComet && (
-          <SkillBar
-            label="COMET"
-            hotkey="V/K"
-            cooldownMs={gs.cometCooldown}
-            maxCooldownMs={COMET_COOLDOWN}
-            energyCost={COMET_COST}
-            currentEnergy={p.energy}
-            color="#a8a29e"
-            glowColor="#f97316"
-            description={`Sky comet falls down  ${120 + (gs.weaponLevel - 1) * 40} DMG  costs ${COMET_COST}`}
-          />
-        )}
+        {/* The element's four skills, 2x2 so they fit the canvas */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+          {el.skills.map((sk, i) => slots[i] && (
+            <SkillBar
+              key={sk.name}
+              label={sk.name}
+              hotkey={sk.hotkey}
+              cooldownMs={cooldowns[i]}
+              maxCooldownMs={sk.cooldown}
+              energyCost={sk.cost}
+              currentEnergy={p.energy}
+              color={i === 0 ? ec.primary : i === 1 ? ec.secondary : i === 2 ? ec.aura : ec.core}
+              glowColor={ec.primary}
+              damage={skillDamage(elId, (i + 1) as 1 | 2 | 3 | 4, gs.weaponLevel)}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Top-center: Stage name + enemy counter */}
@@ -371,10 +363,9 @@ export default function GameHUD({ gameState: gs, stage, testMode }: GameHUDProps
             ["A / D", "Move"],
             ["SPACE", "Jump"],
             ["SHIFT", "Dash"],
-            ["Z / J", "Fireball  (1 energy)"],
-            ...(hasFireRain  ? [["X", "Fire Rain  (2 energy)"]] : []),
-            ...(hasFireStorm ? [["C", "Fire Storm  (3 energy)"]] : []),
-            ...(hasComet ? [["V / K", `Comet  (${COMET_COST} energy)`]] : []),
+            ...el.skills
+              .map((sk, i) => [sk.hotkey, `${sk.name}  (${sk.cost} energy)`] as [string, string])
+              .filter((_, i) => slots[i]),
             ["WALK", "Pick up Potion"],
           ].map(([key, action]) => (
             <div key={key} className="flex items-center gap-2">

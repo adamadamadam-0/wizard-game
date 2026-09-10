@@ -1,14 +1,24 @@
 "use client"
 
 import { useRef, useEffect, useState } from "react"
-import { useGameEngine, CANVAS_W, CANVAS_H, isPlayingStage, type GameState } from "@/hooks/useGameEngine"
+import { useGameEngine, CANVAS_W, CANVAS_H, isPlayingStage, type GameState, type ElementKind } from "@/hooks/useGameEngine"
 import GameCanvas from "@/components/GameCanvas"
 import GameHUD from "@/components/GameHUD"
-import { TitleScreen, WinScreen, GameOverScreen, StageTransition } from "@/components/GameScreens"
+import { TitleScreen, CharacterSelect, WinScreen, GameOverScreen, StageTransition } from "@/components/GameScreens"
 
 export default function GameClient() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const { stage, stateRef, startStage, testMode, setTestMode } = useGameEngine(canvasRef)
+  const { stage, stateRef, startStage, testMode, setTestMode, element, setElement } = useGameEngine(canvasRef)
+
+  // Title → character select → play
+  const [choosing, setChoosing] = useState(false)
+
+  // Debug handle, opt-in via ?debug=1 — lets you jump stages from the console:
+  // window.__wizard.startStage("stage12"); window.__wizard.stateRef.current
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has("debug")) return
+    ;(window as unknown as Record<string, unknown>).__wizard = { stateRef, startStage, setElement, setTestMode }
+  }, [stateRef, startStage, setElement, setTestMode])
 
   // Force re-render every frame for React HUD
   const [tick, setTick] = useState(0)
@@ -38,17 +48,29 @@ export default function GameClient() {
 
   const handleStartTestMode = () => {
     setTestMode(true)
-    startStage("stage1")
+    setChoosing(true)
   }
 
   const handleStartNormal = () => {
     setTestMode(false)
+    setChoosing(true)
+  }
+
+  const handleChooseElement = (el: ElementKind) => {
+    setElement(el)
+    setChoosing(false)
     startStage("stage1")
   }
 
   const handleReturnToTitle = () => {
     setTestMode(false)
+    setChoosing(false)
     startStage("title")
+  }
+
+  const handleRetry = () => {
+    setChoosing(false)
+    startStage("stage1")
   }
 
   // Scale canvas to fit viewport while keeping aspect ratio (client-only to avoid hydration mismatch)
@@ -86,7 +108,7 @@ export default function GameClient() {
 
         {/* React HUD overlay — only while playing */}
         {isPlaying && tick > 0 && (
-          <GameHUD gameState={gs} stage={stage} testMode={testMode} />
+          <GameHUD gameState={gs} stage={stage} testMode={testMode} element={element} />
         )}
 
         {/* Stage transition banner */}
@@ -95,14 +117,21 @@ export default function GameClient() {
         )}
 
         {/* Screen overlays */}
-        {stage === "title" && (
+        {stage === "title" && !choosing && (
           <TitleScreen onStart={handleStartNormal} onStartTestMode={handleStartTestMode} />
         )}
+        {stage === "title" && choosing && (
+          <CharacterSelect
+            onChoose={handleChooseElement}
+            onBack={() => setChoosing(false)}
+            testMode={testMode}
+          />
+        )}
         {stage === "win" && (
-          <WinScreen onRestart={handleReturnToTitle} />
+          <WinScreen onRestart={handleReturnToTitle} element={element} />
         )}
         {stage === "gameover" && (
-          <GameOverScreen onRestart={handleStartNormal} />
+          <GameOverScreen onRestart={handleRetry} onTitle={handleReturnToTitle} />
         )}
 
         {/* Scanline overlay for retro effect */}

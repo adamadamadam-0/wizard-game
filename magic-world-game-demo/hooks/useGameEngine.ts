@@ -14,10 +14,11 @@ export const MAX_ENERGY_S2 = 5          // level 1 stage 2
 export const MAX_ENERGY_S3 = 7          // level 1 stage 3 + level 2
 export const MAX_ENERGY_L3 = 9          // level 3
 export const MAX_ENERGY_L4 = 11         // levels 4-6
-export const SKILL_COOLDOWN = 3000       // ms  (fireball refill: 3s)
-export const SKILL2_COOLDOWN = 6000      // ms  (fire rain refill: 6s)
-export const SKILL3_COOLDOWN = 9000      // ms  (fire storm refill: 9s)
-export const COMET_COOLDOWN = 12000       // ms  (comet refill: 12s)
+// Legacy fire-element defaults. Live cooldowns/costs now come from ELEMENTS.
+export const SKILL_COOLDOWN = 3000       // ms
+export const SKILL2_COOLDOWN = 6000      // ms
+export const SKILL3_COOLDOWN = 9000      // ms
+export const COMET_COOLDOWN = 12000      // ms
 export const COMET_COST = 4
 export const ENERGY_REGEN_INTERVAL = 5000  // ms  (energy orb regen: 5s)
 export const GROUND_Y = CANVAS_H - 56    // pixel ground line
@@ -81,16 +82,27 @@ export function isPlayingStage(s: Stage): boolean {
     || s === "stage10" || s === "stage11" || s === "stage12" || s === "stage13" || s === "stage14" || s === "stage15" || s === "stage16" || s === "stage17" || s === "stage18"
 }
 
-export function hasFireRainUnlocked(s: Stage): boolean {
+/** Skill slot 2 unlocks at level 1-2, slot 3 at level 1-3, slot 4 at level 2-2. */
+export function hasSkill2Unlocked(s: Stage): boolean {
   return s !== "stage1" && isPlayingStage(s)
 }
 
-export function hasFireStormUnlocked(s: Stage): boolean {
+export function hasSkill3Unlocked(s: Stage): boolean {
   return s !== "stage1" && s !== "stage2" && isPlayingStage(s)
 }
 
-export function hasCometUnlocked(s: Stage): boolean {
+export function hasSkill4Unlocked(s: Stage): boolean {
   return s === "stage5" || s === "stage6" || s === "stage7" || s === "stage8" || s === "stage9" || L4_STAGES.includes(s)
+}
+
+// Legacy aliases (fire-flavoured names) kept so existing callers keep working.
+export const hasFireRainUnlocked = hasSkill2Unlocked
+export const hasFireStormUnlocked = hasSkill3Unlocked
+export const hasCometUnlocked = hasSkill4Unlocked
+
+/** Which skill slots are usable on a given stage. */
+export function unlockedSlots(s: Stage): boolean[] {
+  return [true, hasSkill2Unlocked(s), hasSkill3Unlocked(s), hasSkill4Unlocked(s)]
 }
 
 export function nextStageOf(s: Stage): Stage {
@@ -112,6 +124,127 @@ export function maxHpForStage(s: Stage): number {
   return 200
 }
 
+// ─── Attack / hurt animation FX ──────────────────────────────────────────────
+/** Themed one-shot animations played when something swings, casts or shoots. */
+export type AttackStyle =
+  | "claw" | "axe" | "bone" | "hammer"          // Level 1 - forest & castle
+  | "laser" | "rotor"                            // Level 2 - Laputa machines
+  | "holy" | "featherslash"                      // Level 3 - heaven
+  | "trident" | "shock" | "splash"               // Level 4 - deep sea
+  | "flame" | "magma"                            // Level 5 - volcano
+  | "data" | "grid"                              // Level 6 - computer
+  | "darkcast" | "gunshot" | "divinecast" | "tidecast" | "infernocast" | "systemcast"
+  | "hurt"
+
+export interface AttackFx {
+  id: number
+  x: number; y: number
+  facing: 1 | -1
+  style: AttackStyle
+  timer: number; maxTimer: number
+  color: string
+  color2: string
+  scale: number
+  rot: number
+}
+
+// ─── Elements (playable wizard characters) ───────────────────────────────────
+export type ElementKind = "fire" | "water" | "light"
+
+export interface SkillDef {
+  name: string
+  hotkey: string
+  cost: number
+  cooldown: number      // ms
+  baseDamage: number
+  dmgPerLevel: number   // damage added per weapon level (EXP upgrade)
+  radius: number
+  blurb: string
+}
+
+export interface ElementDef {
+  id: ElementKind
+  name: string          // element name
+  title: string         // character class name
+  tagline: string
+  colors: { primary: string; secondary: string; core: string; dark: string; aura: string }
+  skills: [SkillDef, SkillDef, SkillDef, SkillDef]
+  boltSpeed: number
+  pierce: number        // extra enemies a bolt punches through
+  slowFrames: number    // frames of slow applied on bolt hit (water)
+  castFx: AttackStyle   // themed cast flourish drawn on the wizard
+}
+
+/** Weapon level is driven by EXP — every level adds flat damage to all 4 skills. */
+export const MAX_WEAPON_LEVEL = 10
+
+export const ELEMENTS: Record<ElementKind, ElementDef> = {
+  fire: {
+    id: "fire",
+    name: "FIRE",
+    title: "PYROMANCER",
+    tagline: "Raw burst damage. Melts single targets and bosses.",
+    colors: { primary: "#f97316", secondary: "#ef4444", core: "#fef08a", dark: "#7c2d12", aura: "#fbbf24" },
+    boltSpeed: 10,
+    pierce: 0,
+    slowFrames: 0,
+    castFx: "flame",
+    skills: [
+      { name: "FIREBALL",    hotkey: "Z/J", cost: 1, cooldown: 3000,  baseDamage: 30,  dmgPerLevel: 15, radius: 0,   blurb: "Hurls a burning sphere" },
+      { name: "FIRE RAIN",   hotkey: "X",   cost: 2, cooldown: 6000,  baseDamage: 50,  dmgPerLevel: 20, radius: 260, blurb: "Meteors fall around you" },
+      { name: "FIRE TYPHOON",hotkey: "C",   cost: 3, cooldown: 9000,  baseDamage: 70,  dmgPerLevel: 25, radius: 320, blurb: "Spiralling firestorm" },
+      { name: "COMET",       hotkey: "V/K", cost: 4, cooldown: 12000, baseDamage: 120, dmgPerLevel: 40, radius: 160, blurb: "Drops a blazing comet" },
+    ],
+  },
+  water: {
+    id: "water",
+    name: "WATER",
+    title: "TIDECALLER",
+    tagline: "Wide crowd control. Bolts chill enemies and slow them down.",
+    colors: { primary: "#38bdf8", secondary: "#0ea5e9", core: "#e0f2fe", dark: "#0c4a6e", aura: "#7dd3fc" },
+    boltSpeed: 9,
+    pierce: 0,
+    slowFrames: 90,
+    castFx: "splash",
+    skills: [
+      { name: "AQUA BOLT",   hotkey: "Z/J", cost: 1, cooldown: 2600,  baseDamage: 26,  dmgPerLevel: 13, radius: 0,   blurb: "Chilling jet - slows on hit" },
+      { name: "TIDAL WAVE",  hotkey: "X",   cost: 2, cooldown: 6000,  baseDamage: 46,  dmgPerLevel: 18, radius: 320, blurb: "A crashing wall of water" },
+      { name: "MAELSTROM",   hotkey: "C",   cost: 3, cooldown: 9000,  baseDamage: 62,  dmgPerLevel: 22, radius: 360, blurb: "Huge spinning whirlpool" },
+      { name: "GLACIER",     hotkey: "V/K", cost: 4, cooldown: 12000, baseDamage: 110, dmgPerLevel: 36, radius: 190, blurb: "Drops a frozen iceberg" },
+    ],
+  },
+  light: {
+    id: "light",
+    name: "LIGHT",
+    title: "LUMINAR",
+    tagline: "Piercing precision. Lances punch through whole enemy rows.",
+    colors: { primary: "#fbbf24", secondary: "#fde68a", core: "#ffffff", dark: "#b45309", aura: "#fef3c7" },
+    boltSpeed: 13,
+    pierce: 2,
+    slowFrames: 0,
+    castFx: "holy",
+    skills: [
+      { name: "LIGHT LANCE", hotkey: "Z/J", cost: 1, cooldown: 3200,  baseDamage: 34,  dmgPerLevel: 17, radius: 0,   blurb: "Pierces up to 3 enemies" },
+      { name: "STAR FALL",   hotkey: "X",   cost: 2, cooldown: 6500,  baseDamage: 54,  dmgPerLevel: 21, radius: 240, blurb: "Calls down falling stars" },
+      { name: "RADIANT NOVA",hotkey: "C",   cost: 3, cooldown: 9500,  baseDamage: 76,  dmgPerLevel: 27, radius: 300, blurb: "Expanding rings of light" },
+      { name: "JUDGMENT",    hotkey: "V/K", cost: 4, cooldown: 13000, baseDamage: 135, dmgPerLevel: 45, radius: 150, blurb: "A pillar of holy fire" },
+    ],
+  },
+}
+
+export const ELEMENT_ORDER: ElementKind[] = ["fire", "water", "light"]
+
+/** Damage for a skill slot (1-4) at the current weapon level. */
+export function skillDamage(el: ElementKind, slot: 1 | 2 | 3 | 4, weaponLevel: number): number {
+  const s = ELEMENTS[el].skills[slot - 1]
+  return Math.round(s.baseDamage + (weaponLevel - 1) * s.dmgPerLevel)
+}
+
+/** EXP needed to reach the next weapon level. */
+export function expForWeaponLevel(level: number): number {
+  return Math.round(100 * Math.pow(1.35, level - 1))
+}
+
 export interface Rect { x: number; y: number; w: number; h: number }
 
 export interface Player {
@@ -125,7 +258,12 @@ export interface Player {
   animTimer: number
   state: "idle" | "run" | "jump" | "cast" | "hurt" | "dead"
   hurtTimer: number
+  hurtDir: 1 | -1         // knock-back direction for the hurt animation
+  flashTimer: number      // white impact flash frames
   castTimer: number
+  castMax: number         // length of the current cast, for cast-pose easing
+  castSlot: 1 | 2 | 3 | 4 // which skill is being cast (drives the cast pose)
+  element: ElementKind
 }
 
 type PlayerState = Player["state"]
@@ -140,6 +278,10 @@ export interface Enemy {
   animFrame: number; animTimer: number
   state: "idle" | "walk" | "attack" | "hurt" | "dead"
   hurtTimer: number
+  hurtDir: 1 | -1         // knock-back direction for the hurt animation
+  flashTimer: number      // white impact flash frames
+  deathTimer: number      // death dissolve animation frames
+  slowTimer: number       // frames left chilled (water element)
   attackTimer: number
   attackAnim: number
   attackAnimMax: number
@@ -178,6 +320,10 @@ export interface Fireball {
   active: boolean
   type?: "fireball" | "rain" | "storm" | "typhoon" | "enemy" | "robotBullet"
   frame?: number
+  element?: ElementKind
+  pierce?: number       // enemies this bolt can still punch through
+  hitIds?: number[]     // enemies already damaged by this bolt
+  enemyStyle?: AttackStyle  // themed look for enemy projectiles
   // Typhoon spiral data
   angle?: number
   radius?: number
@@ -194,6 +340,7 @@ export interface Comet {
   active: boolean
   exploded: boolean
   frame: number
+  element: ElementKind
 }
 
 export interface Platform { x: number; y: number; w: number; h: number; type: "ground" | "platform" }
@@ -221,6 +368,7 @@ export interface AoeEffect {
   hazardDamage?: number
   hazardColor?: string
   lightning?: boolean      // render lightning bolt telegraph
+  playerOwned?: boolean    // a hazard the player created — burns enemies, not the wizard
 }
 
 export interface GameState {
@@ -234,6 +382,8 @@ export interface GameState {
   floatingTexts: FloatingText[]
   potions: Potion[]
   aoeEffects: AoeEffect[]
+  attackFx: AttackFx[]
+  element: ElementKind
   skillCooldown: number       // ms remaining — fireball
   skill2Cooldown: number      // ms remaining — fire rain
   skill3Cooldown: number      // ms remaining — fire storm
@@ -291,6 +441,35 @@ function spawnParticles(state: GameState, x: number, y: number, count: number, c
 
 function spawnFloatingText(state: GameState, x: number, y: number, text: string, color: string) {
   state.floatingTexts.push({ x, y, vy: -1.2, text, color, life: 60, maxLife: 60 })
+}
+
+/** Queue a themed one-shot attack animation (slash arc, muzzle flash, rune…). */
+function spawnAttackFx(
+  state: GameState, x: number, y: number, facing: 1 | -1,
+  style: AttackStyle, color: string, color2: string, scale = 1, frames?: number,
+) {
+  const dur = frames ?? (style === "hurt" ? 10 : 16)
+  state.attackFx.push({
+    id: nextId(), x, y, facing, style,
+    timer: dur, maxTimer: dur,
+    color, color2, scale,
+    rot: (Math.random() - 0.5) * 0.3,
+  })
+}
+
+/** Damage the wizard, with recoil + flash so hits read clearly. */
+function hurtPlayer(state: GameState, dmg: number, fromX: number, color = "#ef4444", shake = 4) {
+  const p = state.player
+  if (state.testMode || p.hp <= 0 || p.state === "dead" || p.hurtTimer > 0) return
+  p.hp = Math.max(0, p.hp - dmg)
+  p.hurtDir = fromX <= p.x + p.w / 2 ? 1 : -1
+  p.hurtTimer = 28
+  p.flashTimer = 12
+  p.x = clamp(p.x + p.hurtDir * 7, 0, state.stageWidth - p.w)
+  state.screenShake = Math.max(state.screenShake, shake)
+  spawnFloatingText(state, p.x, p.y - 10, `-${dmg}`, "#ef4444")
+  spawnParticles(state, p.x + p.w / 2, p.y + p.h / 2, 9, color, 4)
+  spawnAttackFx(state, p.x + p.w / 2 - p.hurtDir * (p.w / 2), p.y + p.h / 2, p.hurtDir, "hurt", color, "#ffffff", 1)
 }
 
 // ─── Stage Builders ───────────────────────────────────────────────────────────
@@ -731,6 +910,71 @@ function buildStage18(): { platforms: Platform[]; enemies: Enemy[]; stageWidth: 
   return { platforms, enemies: [boss], stageWidth }
 }
 
+// ─── Boss tuning ─────────────────────────────────────────────────────────────
+/**
+ * Boss HP ramp. Every level's boss has at least +20% HP over the previous one
+ * (actual steps here are +50%, +44%, +31%, +29%, +27%).
+ */
+export const BOSS_HP: Record<BossKind, number> = {
+  darklord: 300,
+  muska: 450,
+  god: 650,
+  leviathan: 850,
+  ifrit: 1100,
+  ai: 1400,
+}
+
+/** Themed melee/cast flourish for every enemy type, matching its level theme. */
+export const ENEMY_ATTACK_STYLE: Record<EnemyType, AttackStyle> = {
+  goblin: "claw", orc: "axe", skeleton: "bone", orcBrute: "hammer",
+  robot: "laser", robotElite: "rotor",
+  angel: "holy", seraph: "featherslash",
+  fishman: "trident", jellyfish: "shock",
+  imp: "flame", lavaGolem: "magma",
+  virus: "data", firewall: "grid",
+  boss: "darkcast",
+}
+
+/** Themed cast flourish for each boss. */
+export const BOSS_ATTACK_STYLE: Record<BossKind, AttackStyle> = {
+  darklord: "darkcast",
+  muska: "gunshot",
+  god: "divinecast",
+  leviathan: "tidecast",
+  ifrit: "infernocast",
+  ai: "systemcast",
+}
+
+/** Two-tone palette used by each enemy's attack FX so it reads as its level. */
+export const ENEMY_FX_COLORS: Record<EnemyType, [string, string]> = {
+  goblin: ["#4ade80", "#bbf7d0"],
+  orc: ["#fb923c", "#fed7aa"],
+  skeleton: ["#e2e8f0", "#94a3b8"],
+  orcBrute: ["#f59e0b", "#fde68a"],
+  robot: ["#38bdf8", "#e0f2fe"],
+  robotElite: ["#93c5fd", "#ffffff"],
+  angel: ["#fde68a", "#ffffff"],
+  seraph: ["#fbbf24", "#fef3c7"],
+  fishman: ["#38bdf8", "#7dd3fc"],
+  jellyfish: ["#c084fc", "#f0abfc"],
+  imp: ["#f97316", "#fef08a"],
+  lavaGolem: ["#f97316", "#fbbf24"],
+  virus: ["#22c55e", "#4ade80"],
+  firewall: ["#ef4444", "#22d3ee"],
+  boss: ["#a855f7", "#e9d5ff"],
+}
+
+export function bossFxColors(kind: BossKind): [string, string] {
+  switch (kind) {
+    case "muska": return ["#93c5fd", "#ffffff"]
+    case "god": return ["#fbbf24", "#fef3c7"]
+    case "leviathan": return ["#38bdf8", "#e0f2fe"]
+    case "ifrit": return ["#f97316", "#fef08a"]
+    case "ai": return ["#22d3ee", "#4ade80"]
+    default: return ["#a855f7", "#e9d5ff"]
+  }
+}
+
 function mkEnemy(type: EnemyType, x: number, y: number, groundY: number): Enemy {
   const sizes: Record<EnemyType, { w: number; h: number }> = {
     goblin:     { w: 24, h: 28 },
@@ -750,7 +994,7 @@ function mkEnemy(type: EnemyType, x: number, y: number, groundY: number): Enemy 
     firewall:   { w: 34, h: 44 },
   }
   const hpMap: Record<EnemyType, number> = {
-    goblin: 30, orc: 60, skeleton: 45, boss: 300, orcBrute: 150,
+    goblin: 30, orc: 60, skeleton: 45, boss: BOSS_HP.darklord, orcBrute: 150,
     robot: 80, robotElite: 180, angel: 110, seraph: 140,
     fishman: 130, jellyfish: 90, imp: 100, lavaGolem: 240, virus: 120, firewall: 280,
   }
@@ -770,7 +1014,7 @@ function mkEnemy(type: EnemyType, x: number, y: number, groundY: number): Enemy 
     vx: 0, vy: 0, onGround: true,
     hp: hpMap[type], maxHp: hpMap[type],
     facing: -1, animFrame: 0, animTimer: 0,
-    state: "idle", hurtTimer: 0, attackTimer: 0,
+    state: "idle", hurtTimer: 0, hurtDir: 1, flashTimer: 0, deathTimer: 0, slowTimer: 0, attackTimer: 0,
     attackAnim: 0, attackAnimMax: 0, attackPhase: "windup",
     aggroRange: aggroMap[type], attackRange: attackMap[type],
     groundY, patrolDir: 1, patrolTimer: 60,
@@ -858,28 +1102,28 @@ function mkBoss(kind: BossKind, x: number, y: number, groundY: number): Enemy {
   const boss = mkEnemy("boss", x, y, groundY)
   boss.bossKind = kind
   if (kind === "muska") {
-    boss.hp = boss.maxHp = 450
+    boss.hp = boss.maxHp = BOSS_HP.muska
     boss.specialType = "airstrike"
     boss.specialRadius = 150
     boss.specialCooldown = 220
   } else if (kind === "god") {
-    boss.hp = boss.maxHp = 650
+    boss.hp = boss.maxHp = BOSS_HP.god
     boss.specialType = "holyNova"
     boss.specialRadius = 210
     boss.specialCooldown = 200
     boss.bossAttackPattern = 0
   } else if (kind === "leviathan") {
-    boss.hp = boss.maxHp = 800
+    boss.hp = boss.maxHp = BOSS_HP.leviathan
     boss.specialType = "poisonNova"
     boss.specialRadius = 210
     boss.specialCooldown = 200
   } else if (kind === "ifrit") {
-    boss.hp = boss.maxHp = 950
+    boss.hp = boss.maxHp = BOSS_HP.ifrit
     boss.specialType = "airstrike"
     boss.specialRadius = 180
     boss.specialCooldown = 190
   } else if (kind === "ai") {
-    boss.hp = boss.maxHp = 1100
+    boss.hp = boss.maxHp = BOSS_HP.ai
     boss.specialType = "holyNova"
     boss.specialRadius = 210
     boss.specialCooldown = 180
@@ -888,7 +1132,7 @@ function mkBoss(kind: BossKind, x: number, y: number, groundY: number): Enemy {
   return boss
 }
 
-function makeInitialPlayer(stage: Stage = "stage1", prevPlayer?: Player): Player {
+function makeInitialPlayer(stage: Stage = "stage1", prevPlayer?: Player, element: ElementKind = "fire"): Player {
   const maxHp = maxHpForStage(stage)
   const maxEnergy = maxEnergyForStage(stage)
   // carry over HP on stage transition (capped to new maxHp), energy refills fully
@@ -898,7 +1142,9 @@ function makeInitialPlayer(stage: Stage = "stage1", prevPlayer?: Player): Player
     vx: 0, vy: 0, onGround: false, facing: 1,
     hp, maxHp, energy: maxEnergy,
     animFrame: 0, animTimer: 0,
-    state: "idle", hurtTimer: 0, castTimer: 0,
+    state: "idle", hurtTimer: 0, hurtDir: 1, flashTimer: 0,
+    castTimer: 0, castMax: 1, castSlot: 1,
+    element,
   }
 }
 
@@ -925,15 +1171,25 @@ function applyPlatformCollision(
 // ─── Main Game Engine Hook ────────────────────────────────────────────────────
 export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const testModeRef = useRef(false)
+  const elementRef = useRef<ElementKind>("fire")
   const stateRef = useRef<GameState>(createInitialState("title"))
   const inputRef = useRef<InputState>({ left: false, right: false, jump: false, fire: false, skill2: false, skill3: false, comet: false, dash: false, jumpPressed: false, firePressed: false, skill2Pressed: false, skill3Pressed: false, cometPressed: false, dashPressed: false })
   const rafRef = useRef<number>(0)
   const [stage, setStage] = useState<Stage>("title")
   const [renderTick, setRenderTick] = useState(0)
   const [testMode, setTestMode] = useState(false)
+  const [element, setElementState] = useState<ElementKind>("fire")
 
   // expose a shallow snapshot for React rendering
   const forceRender = useCallback(() => setRenderTick(t => t + 1), [])
+
+  const setElement = useCallback((el: ElementKind) => {
+    elementRef.current = el
+    stateRef.current.element = el
+    stateRef.current.player.element = el
+    setElementState(el)
+    forceRender()
+  }, [forceRender])
 
   const setTestModeEnabled = useCallback((enabled: boolean) => {
     testModeRef.current = enabled
@@ -965,7 +1221,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       : { platforms: [], enemies: [], stageWidth: CANVAS_W }
     return {
       stage: s,
-      player: makeInitialPlayer(s, prev?.player),
+      player: makeInitialPlayer(s, prev?.player, elementRef.current),
       enemies,
       fireballs: [],
       comets: [],
@@ -974,13 +1230,15 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       floatingTexts: [],
       potions: [],
       aoeEffects: [],
+      attackFx: [],
+      element: elementRef.current,
       skillCooldown: 0,
       skill2Cooldown: 0,
       skill3Cooldown: 0,
       cometCooldown: 0,
       dashCooldown: 0,
       exp: prev?.exp ?? 0,
-      expToNext: prev?.expToNext ?? 100,
+      expToNext: prev?.expToNext ?? expForWeaponLevel(1),
       weaponLevel: prev?.weaponLevel ?? 1,
       lastFireTime: 0,
       lastEnergyRegen: 0,
@@ -1112,6 +1370,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     updateFireballs(gs)
     updateComets(gs)
     updateAoeEffects(gs)
+    updateAttackFx(gs)
     updatePotions(gs)
     updateParticles(gs)
     checkWinCondition(gs)
@@ -1121,8 +1380,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     const p = gs.player
     if (p.state === "dead") return
 
-    // Hurt timer
+    // Hurt / flash / cast timers
     if (p.hurtTimer > 0) p.hurtTimer--
+    if (p.flashTimer > 0) p.flashTimer--
     if (p.castTimer > 0) p.castTimer--
 
     const prevY = p.y
@@ -1177,57 +1437,49 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     gs.cameraX = clamp(targetCX, 0, gs.stageWidth - CANVAS_W)
     gs.cameraX += (Math.random() - 0.5) * gs.screenShake
 
-    // Fire fireball (Z/J — costs 1 energy)
-    if (inp.firePressed && gs.skillCooldown <= 0 && p.energy >= 1 && p.castTimer <= 0) {
-      gs.player.energy--
-      gs.skillCooldown = SKILL_COOLDOWN
+    // ── Skills ───────────────────────────────────────────────────────────────
+    // All four slots are shared by every element; the element decides what
+    // each slot looks like, how much it costs and how hard it hits.
+    const el = ELEMENTS[p.element]
+
+    // Slot 1 — bolt (Z/J)
+    const s1 = el.skills[0]
+    if (inp.firePressed && gs.skillCooldown <= 0 && p.energy >= s1.cost && p.castTimer <= 0) {
+      p.energy -= s1.cost
+      gs.skillCooldown = s1.cooldown
       gs.lastEnergyRegen = now
-      p.castTimer = 12
-      p.state = "cast"
-      // Fireball spawns slightly ahead of the wizard so it doesn't stick to the wand
-      const wl = gs.weaponLevel
-      const fbW = 14 + (wl - 1) * 4
-      const fbH = 12 + (wl - 1) * 2
-      const fbX = p.facing === 1 ? p.x + p.w + 8 : p.x - fbW - 8
-      const fbY = p.y + 10
-      gs.fireballs.push({
-        id: nextId(), x: fbX, y: fbY,
-        w: fbW, h: fbH,
-        vx: FIREBALL_SPEED * p.facing, vy: 0,
-        fromPlayer: true, active: true,
-        type: "fireball", frame: 0,
-      })
-      spawnParticles(gs, fbX, p.y + p.h / 2, 6, "#f97316", 2)
+      beginCast(p, 14, 1)
+      castBolt(gs)
     }
 
-    // Fire Rain (X — costs 2 energy, AOE damage, count scales with weapon)
-    if (inp.skill2Pressed && hasFireRainUnlocked(gs.stage) && gs.skill2Cooldown <= 0 && p.energy >= 2 && p.castTimer <= 0) {
-      gs.player.energy -= 2
-      gs.skill2Cooldown = SKILL2_COOLDOWN
+    // Slot 2 — rain / wave / starfall (X)
+    const s2 = el.skills[1]
+    if (inp.skill2Pressed && hasSkill2Unlocked(gs.stage) && gs.skill2Cooldown <= 0 && p.energy >= s2.cost && p.castTimer <= 0) {
+      p.energy -= s2.cost
+      gs.skill2Cooldown = s2.cooldown
       gs.lastEnergyRegen = now
-      p.castTimer = 20
-      p.state = "cast"
-      castFireRain(gs, gs.weaponLevel)
+      beginCast(p, 22, 2)
+      castRain(gs)
     }
 
-    // Fire Storm (C — costs 3 energy, AOE damage, count scales with weapon)
-    if (inp.skill3Pressed && hasFireStormUnlocked(gs.stage) && gs.skill3Cooldown <= 0 && p.energy >= 3 && p.castTimer <= 0) {
-      gs.player.energy -= 3
-      gs.skill3Cooldown = SKILL3_COOLDOWN
+    // Slot 3 — storm / maelstrom / nova (C)
+    const s3 = el.skills[2]
+    if (inp.skill3Pressed && hasSkill3Unlocked(gs.stage) && gs.skill3Cooldown <= 0 && p.energy >= s3.cost && p.castTimer <= 0) {
+      p.energy -= s3.cost
+      gs.skill3Cooldown = s3.cooldown
       gs.lastEnergyRegen = now
-      p.castTimer = 28
-      p.state = "cast"
-      castFireStorm(gs, gs.weaponLevel)
+      beginCast(p, 30, 3)
+      castStorm(gs)
     }
 
-    // Comet (V/K — costs 4 energy, giant rock with fire, AOE damage)
-    if (inp.cometPressed && hasCometUnlocked(gs.stage) && gs.cometCooldown <= 0 && p.energy >= COMET_COST && p.castTimer <= 0) {
-      gs.player.energy -= COMET_COST
-      gs.cometCooldown = COMET_COOLDOWN
+    // Slot 4 — comet / glacier / judgment (V/K)
+    const s4 = el.skills[3]
+    if (inp.cometPressed && hasSkill4Unlocked(gs.stage) && gs.cometCooldown <= 0 && p.energy >= s4.cost && p.castTimer <= 0) {
+      p.energy -= s4.cost
+      gs.cometCooldown = s4.cooldown
       gs.lastEnergyRegen = now
-      p.castTimer = 36
-      p.state = "cast"
-      castComet(gs, gs.weaponLevel)
+      beginCast(p, 38, 4)
+      castHeavy(gs)
     }
 
     // Animate
@@ -1255,8 +1507,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
   function updateEnemies(gs: GameState, now: number) {
     const p = gs.player
     for (const e of gs.enemies) {
-      if (e.state === "dead") continue
+      if (e.state === "dead") { if (e.deathTimer > 0) e.deathTimer--; continue }
       if (e.hurtTimer > 0) e.hurtTimer--
+      if (e.flashTimer > 0) e.flashTimer--
+      if (e.slowTimer > 0) e.slowTimer--
 
       const prevY = e.y
       const dx = p.x + p.w / 2 - (e.x + e.w / 2)
@@ -1380,7 +1634,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
               : e.type === "fishman" ? 2.0
               : e.type === "lavaGolem" || e.type === "firewall" ? 1.2
               : 1.8
-            e.vx = e.facing * baseSpd * (e.hurtTimer > 0 ? 0.3 : 1)
+            e.vx = e.facing * baseSpd * (e.hurtTimer > 0 ? 0.3 : 1) * (e.slowTimer > 0 ? 0.45 : 1)
             e.state = "walk"
             e.attackAnim = 0
             e.attackPhase = "windup"
@@ -1442,25 +1696,24 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
                 e.attackPhase = "recover"
                 e.attackAnim = recover
                 e.attackAnimMax = recover
+                // Themed swing animation fires whether or not the blow lands
+                const [fxA, fxB] = e.type === "boss"
+                  ? bossFxColors(e.bossKind ?? "darklord")
+                  : ENEMY_FX_COLORS[e.type]
+                const style = e.type === "boss"
+                  ? BOSS_ATTACK_STYLE[e.bossKind ?? "darklord"]
+                  : ENEMY_ATTACK_STYLE[e.type]
+                spawnAttackFx(
+                  gs,
+                  e.x + e.w / 2 + e.facing * (e.w * 0.7),
+                  e.y + e.h * 0.45,
+                  e.facing, style, fxA, fxB,
+                  e.type === "boss" ? 2.2 : e.w / 26,
+                )
                 const verticalDiff = Math.abs((p.y + p.h) - (e.y + e.h))
                 if (!gs.testMode && p.hurtTimer <= 0 && p.hp > 0 && verticalDiff < 80) {
-                  p.hp = Math.max(0, p.hp - dmg)
-                  p.hurtTimer = 30
+                  hurtPlayer(gs, dmg, e.x + e.w / 2, fxA, e.type === "boss" ? 7 : 3)
                   p.vy = -5
-                  gs.screenShake = e.type === "boss" ? 6 : 3
-                  spawnFloatingText(gs, p.x, p.y - 10, `-${dmg}`, "#ef4444")
-                  spawnParticles(gs, p.x + p.w / 2, p.y + p.h / 2, 8, "#ef4444", 4)
-                  // Slash burst visual at player position
-                  gs.aoeEffects.push({
-                    id: nextId(),
-                    x: p.x + p.w / 2,
-                    y: p.y + p.h / 2,
-                    radius: 30,
-                    type: "burst",
-                    timer: 12,
-                    maxTimer: 12,
-                    color: "#ef4444",
-                  })
                 }
               }
             } else if (e.attackPhase === "recover") {
@@ -1710,6 +1963,12 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       })
     }
     spawnFloatingText(gs, e.x, e.y - 24, label, color)
+    // Themed cast flourish on the caster
+    const castStyle = e.type === "boss"
+      ? BOSS_ATTACK_STYLE[e.bossKind ?? "darklord"]
+      : ENEMY_ATTACK_STYLE[e.type]
+    const [cA, cB] = e.type === "boss" ? bossFxColors(e.bossKind ?? "darklord") : ENEMY_FX_COLORS[e.type]
+    spawnAttackFx(gs, ex, ey, e.facing, castStyle, color || cA, cB, e.type === "boss" ? 2.8 : 1.4, 40)
   }
 
   function shootEnemyProjectile(gs: GameState, e: Enemy) {
@@ -1720,6 +1979,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     const shots = e.shots || 1
     const spd = e.type === "robotElite" ? 4 : e.type === "seraph" || e.type === "virus" ? 3.5 : 3
     const bulletType = e.type === "robot" || e.type === "robotElite" || e.type === "virus" ? "robotBullet" : "enemy"
+    const style = ENEMY_ATTACK_STYLE[e.type]
+    const [fxA, fxB] = ENEMY_FX_COLORS[e.type]
     for (let i = 0; i < shots; i++) {
       const angle = shots > 1 ? baseAngle + (i - (shots - 1) / 2) * 0.22 : baseAngle
       gs.fireballs.push({
@@ -1727,9 +1988,12 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd,
         fromPlayer: false, active: true,
         type: bulletType, frame: i,
+        enemyStyle: style,
       })
     }
-    spawnParticles(gs, ex, ey, 4, e.type === "seraph" ? "#fde68a" : "#93c5fd", 2)
+    // Muzzle / channel flourish, themed to the enemy's level
+    spawnAttackFx(gs, ex + e.facing * (e.w * 0.6), ey, e.facing, style, fxA, fxB, e.w / 30)
+    spawnParticles(gs, ex, ey, 4, fxA, 2)
   }
 
   function featherRain(gs: GameState, e: Enemy) {
@@ -1765,17 +2029,14 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             type: "burst", timer: 30, maxTimer: 30, color: fx.color,
           })
           spawnParticles(gs, fx.x, fx.y, 24, fx.color, 6)
+          spawnAttackFx(gs, fx.x, fx.y, 1, fx.lightning ? "shock" : "hurt", fx.color, "#ffffff", fx.radius / 60, 18)
           gs.screenShake = fx.radius > 150 ? 10 : 7
           // Damage player if inside (skip in test mode)
           if (!gs.testMode && p.hurtTimer <= 0 && p.hp > 0 && p.state !== "dead") {
             const px = p.x + p.w / 2, py = p.y + p.h / 2
             const d = Math.sqrt((px - fx.x) ** 2 + (py - fx.y) ** 2)
             if (d <= fx.radius + Math.max(p.w, p.h) / 2) {
-              const dmg = fx.damage || 25
-              p.hp = Math.max(0, p.hp - dmg)
-              p.hurtTimer = 40
-              spawnFloatingText(gs, p.x, p.y - 12, `-${dmg}`, "#ef4444")
-              spawnParticles(gs, px, py, 10, "#ef4444", 4)
+              hurtPlayer(gs, fx.damage || 25, fx.x, fx.color, 8)
             }
           }
           // Lingering hazard pool
@@ -1793,6 +2054,13 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
               tickInterval: fx.tickInterval || 40,
             })
           }
+        }
+      } else if (fx.type === "hazard" && fx.playerOwned) {
+        // Player-made hazard: keeps burning / freezing / searing enemies inside it
+        if (fx.tickTimer !== undefined) fx.tickTimer--
+        if (fx.tickTimer !== undefined && fx.tickTimer <= 0) {
+          damageEnemiesAt(gs, fx.x, fx.y, fx.radius, fx.damage || 8, fx.color)
+          fx.tickTimer = fx.tickInterval || 40
         }
       } else if (fx.type === "hazard") {
         if (fx.tickTimer !== undefined) fx.tickTimer--
@@ -1820,53 +2088,128 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     fishman: 35, jellyfish: 30, imp: 30, lavaGolem: 70, virus: 40, firewall: 80,
   }
 
+  /**
+   * EXP is the weapon track: filling the bar raises the weapon level, and every
+   * weapon level adds flat damage to all four of the element's skills.
+   */
   function grantExp(gs: GameState, type: EnemyType) {
-    gs.exp = Math.min(gs.exp + EXP_MAP[type], 999)
+    if (gs.weaponLevel >= MAX_WEAPON_LEVEL) { gs.exp = gs.expToNext; return }
+    gs.exp += EXP_MAP[type]
+    while (gs.exp >= gs.expToNext && gs.weaponLevel < MAX_WEAPON_LEVEL) {
+      gs.exp -= gs.expToNext
+      gs.weaponLevel++
+      gs.expToNext = expForWeaponLevel(gs.weaponLevel)
+      spawnFloatingText(gs, gs.player.x, gs.player.y - 40, `WEAPON LV ${gs.weaponLevel}!`, "#fbbf24")
+      spawnParticles(gs, gs.player.x + 12, gs.player.y + 20, 24, "#fbbf24", 6)
+    }
+    if (gs.weaponLevel >= MAX_WEAPON_LEVEL) gs.exp = gs.expToNext
   }
 
-  function applyAoeDamage(gs: GameState, dmg: number, radius: number, color: string) {
-    const p = gs.player
-    const cx = p.x + p.w / 2
-    const cy = p.y + p.h / 2
+  /** Roll a health potion drop where an enemy fell. */
+  function dropPotion(gs: GameState, e: Enemy) {
+    if (e.type === "boss" || Math.random() >= 0.5) return
+    gs.potions.push({
+      id: nextId(),
+      x: e.x + e.w / 2 - 6,
+      y: e.groundY - 16,
+      w: 12, h: 16,
+      bobOffset: Math.random() * Math.PI * 2,
+      active: true,
+    })
+  }
+
+  /**
+   * Single entry point for hurting an enemy. Drives the hurt animation
+   * (flash + recoil + knock-back direction) and the death dissolve.
+   */
+  function damageEnemy(gs: GameState, e: Enemy, dmg: number, color: string, fromX?: number, slowFrames = 0) {
+    if (e.state === "dead") return
+    e.hp -= dmg
+    const src = fromX ?? gs.player.x + gs.player.w / 2
+    e.hurtDir = src <= e.x + e.w / 2 ? 1 : -1
+    e.hurtTimer = 18
+    e.flashTimer = 10
+    e.state = "hurt"
+    if (slowFrames > 0) e.slowTimer = Math.max(e.slowTimer, slowFrames)
+    spawnFloatingText(gs, e.x, e.y - 12, `-${dmg}`, "#fbbf24")
+    spawnParticles(gs, e.x + e.w / 2, e.y + e.h / 2, 10, color, 4)
+    // Impact spark on the struck side
+    spawnAttackFx(gs, e.x + e.w / 2 - e.hurtDir * (e.w / 2), e.y + e.h / 2, e.hurtDir, "hurt", color, "#ffffff", 0.8 + e.w / 60)
+
+    if (e.hp <= 0) {
+      e.hp = 0
+      e.state = "dead"
+      e.deathTimer = 26
+      gs.killCount++
+      grantExp(gs, e.type)
+      spawnParticles(gs, e.x + e.w / 2, e.y + e.h / 2, e.type === "boss" ? 40 : 20, "#fbbf24", 5)
+      spawnFloatingText(gs, e.x, e.y - 20, e.type === "boss" ? "BOSS SLAIN!" : "+EXP", "#22c55e")
+      dropPotion(gs, e)
+    }
+  }
+
+  /** Damage every living enemy inside a circle. */
+  function damageEnemiesAt(gs: GameState, cx: number, cy: number, radius: number, dmg: number, color: string, slowFrames = 0) {
     for (const e of gs.enemies) {
       if (e.state === "dead") continue
       const ex = e.x + e.w / 2
       const ey = e.y + e.h / 2
-      const dist = Math.sqrt((ex - cx) ** 2 + (ey - cy) ** 2)
-      if (dist <= radius) {
-        e.hp -= dmg
-        e.hurtTimer = 20
-        e.state = "hurt"
-        spawnParticles(gs, ex, ey, 12, color, 5)
-        spawnFloatingText(gs, e.x, e.y - 16, `-${dmg}`, "#fbbf24")
-        gs.screenShake = 6
-        if (e.hp <= 0) {
-          e.state = "dead"
-          e.hp = 0
-          gs.killCount++
-          grantExp(gs, e.type)
-          spawnParticles(gs, ex, ey, 22, "#fbbf24", 5)
-          spawnFloatingText(gs, e.x, e.y - 24, e.type === "boss" ? "BOSS SLAIN!" : "+EXP", "#22c55e")
-          if (e.type !== "boss" && Math.random() < 0.5) {
-            gs.potions.push({
-              id: nextId(),
-              x: e.x + e.w / 2 - 6,
-              y: e.groundY - 16,
-              w: 12, h: 16,
-              bobOffset: Math.random() * Math.PI * 2,
-              active: true,
-            })
-          }
-        }
+      if (Math.sqrt((ex - cx) ** 2 + (ey - cy) ** 2) <= radius) {
+        damageEnemy(gs, e, dmg, color, cx, slowFrames)
       }
     }
   }
 
-  function castFireRain(gs: GameState, weaponLevel: number) {
+  /** AOE centred on the wizard (used by skill slots 2 and 3). */
+  function applyAoeDamage(gs: GameState, dmg: number, radius: number, color: string) {
     const p = gs.player
+    const slow = ELEMENTS[p.element].slowFrames
+    damageEnemiesAt(gs, p.x + p.w / 2, p.y + p.h / 2, radius, dmg, color, slow)
+    gs.screenShake = Math.max(gs.screenShake, 6)
+  }
+
+  // ── Player skill casts (element-driven) ──────────────────────────────────
+  function beginCast(p: Player, frames: number, slot: 1 | 2 | 3 | 4) {
+    p.castTimer = frames
+    p.castMax = frames
+    p.castSlot = slot
+    p.state = "cast"
+  }
+
+  /** Slot 1 — a travelling bolt. Fire burns, water chills, light pierces. */
+  function castBolt(gs: GameState) {
+    const p = gs.player
+    const el = ELEMENTS[p.element]
+    const wl = gs.weaponLevel
+    const w = 14 + Math.min(wl - 1, 5) * 3
+    const h = 12 + Math.min(wl - 1, 5) * 2
+    const x = p.facing === 1 ? p.x + p.w + 8 : p.x - w - 8
+    const y = p.y + 10
+    gs.fireballs.push({
+      id: nextId(), x, y, w, h,
+      vx: el.boltSpeed * p.facing, vy: 0,
+      fromPlayer: true, active: true,
+      type: "fireball", frame: 0,
+      element: p.element,
+      pierce: el.pierce,
+      hitIds: [],
+    })
+    spawnParticles(gs, x, p.y + p.h / 2, 6, el.colors.primary, 2)
+    // Muzzle flourish on the wand, themed to the element
+    spawnAttackFx(gs, x, y + h / 2, p.facing, el.castFx, el.colors.primary, el.colors.core, 1)
+  }
+
+  /** Slot 2 — falling projectiles + an instant area hit around the wizard. */
+  function castRain(gs: GameState) {
+    const p = gs.player
+    const el = ELEMENTS[p.element]
+    const wl = gs.weaponLevel
+    const c = el.colors
     const cx = p.x + p.w / 2
-    const count = weaponLevel >= 3 ? 12 : 8
-    const spread = 240
+    const count = 8 + Math.min(wl - 1, 4)
+    const skill = el.skills[1]
+    const spread = skill.radius * 0.9
+
     for (let i = 0; i < count; i++) {
       const ox = (i / (count - 1)) * spread - spread / 2
       gs.fireballs.push({
@@ -1876,23 +2219,28 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         vx: ox * 0.02, vy: 5 + Math.random() * 2,
         fromPlayer: true, active: true,
         type: "rain", frame: Math.floor(Math.random() * 4),
+        element: p.element, hitIds: [],
       })
     }
-    spawnParticles(gs, cx, p.y, 32, "#ef4444", 6)
-    spawnFloatingText(gs, p.x, p.y - 28, "FIRE RAIN!", "#ef4444")
-    // Immediate AOE hit for all enemies in range
-    applyAoeDamage(gs, 50 + (weaponLevel - 1) * 20, 260, "#ef4444")
+    spawnParticles(gs, cx, p.y, 32, c.secondary, 6)
+    spawnFloatingText(gs, p.x, p.y - 28, skill.name + "!", c.primary)
+    spawnAttackFx(gs, cx, p.y + p.h / 2, p.facing, el.castFx, c.primary, c.core, 2.2)
+    applyAoeDamage(gs, skillDamage(p.element, 2, wl), skill.radius, c.secondary)
   }
 
-  function castFireStorm(gs: GameState, weaponLevel: number) {
+  /** Slot 3 — a spiralling storm of orbiting projectiles. */
+  function castStorm(gs: GameState) {
     const p = gs.player
+    const el = ELEMENTS[p.element]
+    const c = el.colors
+    const wl = gs.weaponLevel
+    const skill = el.skills[2]
     const cx = p.x + p.w / 2
     const cy = p.y + p.h / 2
-    const baseCount = weaponLevel >= 3 ? 16 : 12
-    const waves = weaponLevel >= 3 ? 5 : 4
-    const maxRadius = 260 + (weaponLevel - 1) * 40
+    const baseCount = wl >= 3 ? 16 : 12
+    const waves = wl >= 3 ? 5 : 4
     const spinSpeed = 0.12
-    const expandSpeed = 2.4 + (weaponLevel - 1) * 0.4
+    const expandSpeed = 2.4 + Math.min(wl - 1, 5) * 0.3
 
     for (let w = 0; w < waves; w++) {
       const waveOffset = (w / waves) * Math.PI * 2
@@ -1901,59 +2249,52 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         gs.fireballs.push({
           id: nextId(),
           x: cx, y: cy,
-          w: 10 + (weaponLevel - 1) * 2,
-          h: 10 + (weaponLevel - 1) * 2,
+          w: 10 + Math.min(wl - 1, 4) * 2,
+          h: 10 + Math.min(wl - 1, 4) * 2,
           vx: 0, vy: 0,
           fromPlayer: true, active: true,
-          type: "typhoon",
-          frame: i,
+          type: "typhoon", frame: i,
+          element: p.element, hitIds: [],
           angle,
           radius: 12 + w * 14,
           spinSpeed: spinSpeed + (i % 2 === 0 ? 0.02 : -0.02),
           expandSpeed: expandSpeed + w * 0.3,
-          originX: cx,
-          originY: cy,
+          originX: cx, originY: cy,
           typhoonWave: w,
         })
       }
     }
 
-    // Central vortex AOE
     gs.aoeEffects.push({
-      id: nextId(),
-      x: cx,
-      y: cy,
-      radius: 60,
-      type: "burst",
-      timer: 40,
-      maxTimer: 40,
-      color: "#f97316",
+      id: nextId(), x: cx, y: cy, radius: 60,
+      type: "burst", timer: 40, maxTimer: 40, color: c.primary,
     })
-
-    spawnParticles(gs, cx, cy, 64, "#f97316", 10)
-    spawnFloatingText(gs, p.x, p.y - 28, "TYPHOON FIRE!", "#f97316")
+    spawnParticles(gs, cx, cy, 64, c.primary, 10)
+    spawnFloatingText(gs, p.x, p.y - 28, skill.name + "!", c.primary)
+    spawnAttackFx(gs, cx, cy, p.facing, el.castFx, c.primary, c.core, 3)
     gs.screenShake = 12
-    // Immediate AOE hit for all enemies in range
-    applyAoeDamage(gs, 70 + (weaponLevel - 1) * 25, 320, "#f97316")
+    applyAoeDamage(gs, skillDamage(p.element, 3, wl), skill.radius, c.primary)
   }
 
-  function castComet(gs: GameState, weaponLevel: number) {
+  /** Slot 4 — the heavy finisher that falls from the sky. */
+  function castHeavy(gs: GameState) {
     const p = gs.player
+    const el = ELEMENTS[p.element]
+    const c = el.colors
     const cx = p.x + p.w / 2
-    const size = 40 + (weaponLevel - 1) * 8
-    // Comet falls straight down from the sky above the player (no horizontal throw)
+    const size = 40 + Math.min(gs.weaponLevel - 1, 5) * 6
     gs.comets.push({
       id: nextId(),
       x: cx - size / 2, y: -size - 10,
       w: size, h: size,
       vx: 0,
-      vy: 7 + weaponLevel,
-      active: true,
-      exploded: false,
-      frame: 0,
+      vy: 7 + Math.min(gs.weaponLevel, 6),
+      active: true, exploded: false, frame: 0,
+      element: p.element,
     })
-    spawnParticles(gs, cx, p.y - 40, 40, "#f97316", 8)
-    spawnFloatingText(gs, p.x, p.y - 36, "COMET!", "#f97316")
+    spawnParticles(gs, cx, p.y - 40, 40, c.primary, 8)
+    spawnFloatingText(gs, p.x, p.y - 36, el.skills[3].name + "!", c.primary)
+    spawnAttackFx(gs, cx, p.y + p.h / 2, p.facing, el.castFx, c.primary, c.core, 2.6)
     gs.screenShake = 6
   }
 
@@ -2004,17 +2345,20 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     if (c.exploded) return
     c.exploded = true
     c.active = false
+    const el = ELEMENTS[c.element]
+    const cc = el.colors
     const cx = c.x + c.w / 2
     const cy = c.y + c.h / 2
-    const radius = 140 + gs.weaponLevel * 20
-    const dmg = 120 + (gs.weaponLevel - 1) * 40
-    spawnParticles(gs, cx, cy, 60, "#f97316", 9)
-    spawnParticles(gs, cx, cy, 40, "#78350f", 7)
-    spawnFloatingText(gs, cx, cy - 24, "BOOM!", "#fbbf24")
+    const radius = el.skills[3].radius + Math.min(gs.weaponLevel, 6) * 10
+    const dmg = skillDamage(c.element, 4, gs.weaponLevel)
+    spawnParticles(gs, cx, cy, 60, cc.primary, 9)
+    spawnParticles(gs, cx, cy, 40, cc.dark, 7)
+    spawnFloatingText(gs, cx, cy - 24, c.element === "water" ? "SHATTER!" : c.element === "light" ? "JUDGED!" : "BOOM!", cc.core)
+    spawnAttackFx(gs, cx, cy, 1, el.castFx, cc.primary, cc.core, 4)
     gs.screenShake = 14
     // AOE damage
-    applyAoeDamage(gs, dmg, radius, "#f97316")
-    // Lingering burn hazard
+    applyAoeDamage(gs, dmg, radius, cc.primary)
+    // Lingering hazard: burning ground / freezing pool / consecrated light
     gs.aoeEffects.push({
       id: nextId(),
       x: cx, y: cy,
@@ -2022,10 +2366,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       type: "hazard",
       timer: 180,
       maxTimer: 180,
-      color: "#ef4444",
+      color: cc.secondary,
       damage: 10,
       tickTimer: 35,
       tickInterval: 35,
+      playerOwned: true,
     })
   }
 
@@ -2050,18 +2395,13 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       if (fb.frame !== undefined) fb.frame++
       else fb.frame = 0
 
-      // Animate trail / smoke while traveling
-      if (fb.fromPlayer && fb.type === "fireball" && fb.frame && fb.frame % 4 === 0) {
-        spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, 2, "#fbbf24", 1)
-      }
-      if (fb.fromPlayer && fb.type === "rain" && fb.frame && fb.frame % 3 === 0) {
-        spawnParticles(gs, fb.x + fb.w / 2, fb.y, 2, "#f97316", 1.5)
-      }
-      if (fb.fromPlayer && fb.type === "storm" && fb.frame && fb.frame % 3 === 0) {
-        spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, 2, "#fbbf24", 1.5)
-      }
-      if (fb.fromPlayer && fb.type === "typhoon" && fb.frame && fb.frame % 2 === 0) {
-        spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, 2, "#fbbf24", 2)
+      // Animate trail / smoke while traveling, in the element's colours
+      if (fb.fromPlayer && fb.frame) {
+        const tc = ELEMENTS[fb.element ?? "fire"].colors
+        if (fb.type === "fireball" && fb.frame % 4 === 0) spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, 2, tc.aura, 1)
+        else if (fb.type === "rain" && fb.frame % 3 === 0) spawnParticles(gs, fb.x + fb.w / 2, fb.y, 2, tc.primary, 1.5)
+        else if (fb.type === "storm" && fb.frame % 3 === 0) spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, 2, tc.aura, 1.5)
+        else if (fb.type === "typhoon" && fb.frame % 2 === 0) spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, 2, tc.core, 2)
       }
 
       // Hit world bounds
@@ -2074,7 +2414,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         if (rectOverlap(fb, pl)) {
           fb.active = false
           const impactColor = fb.fromPlayer
-            ? (fb.type === "storm" ? "#fbbf24" : fb.type === "rain" ? "#ef4444" : fb.type === "typhoon" ? "#fbbf24" : "#f97316")
+            ? ELEMENTS[fb.element ?? "fire"].colors.primary
             : "#a855f7"
           spawnParticles(gs, fb.x + fb.w / 2, fb.y + fb.h / 2, fb.type === "storm" ? 12 : fb.type === "rain" ? 10 : fb.type === "typhoon" ? 14 : 6, impactColor, fb.type === "storm" || fb.type === "typhoon" ? 4 : 3)
           break
@@ -2083,39 +2423,24 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       if (!fb.active) continue
 
       if (fb.fromPlayer) {
-        // Hit enemies
+        // Hit enemies — bolts may pierce, storm/rain hits once each
+        const el = ELEMENTS[fb.element ?? gs.element]
+        const slot: 1 | 2 | 3 | 4 = fb.type === "rain" ? 2 : fb.type === "typhoon" || fb.type === "storm" ? 3 : 1
         for (const e of gs.enemies) {
           if (e.state === "dead") continue
-          if (rectOverlap(fb, e)) {
-            const dmg = 30 + (gs.weaponLevel - 1) * 15
-            e.hp -= dmg
-            e.hurtTimer = 15
-            e.state = "hurt"
+          if (fb.hitIds && fb.hitIds.includes(e.id)) continue
+          if (!rectOverlap(fb, e)) continue
+
+          const dmg = Math.round(skillDamage(el.id, slot, gs.weaponLevel) * (slot === 1 ? 1 : 0.35))
+          damageEnemy(gs, e, dmg, el.colors.primary, fb.x + fb.w / 2, el.slowFrames)
+          fb.hitIds?.push(e.id)
+          spawnParticles(gs, e.x + e.w / 2, e.y + e.h / 2, 12, el.colors.core, 4)
+          gs.screenShake = fb.type === "typhoon" ? 5 : 3
+
+          if ((fb.pierce ?? 0) > 0) {
+            fb.pierce = (fb.pierce ?? 0) - 1
+          } else {
             fb.active = false
-            const hitColor = fb.type === "storm" ? "#fbbf24" : fb.type === "rain" ? "#ef4444" : fb.type === "typhoon" ? "#fbbf24" : "#f97316"
-            const hitCount = fb.type === "storm" || fb.type === "typhoon" ? 14 : fb.type === "rain" ? 12 : 10
-            spawnParticles(gs, e.x + e.w / 2, e.y + e.h / 2, hitCount, hitColor, 4)
-            spawnFloatingText(gs, e.x, e.y - 12, `-${dmg}`, "#fbbf24")
-            gs.screenShake = fb.type === "storm" || fb.type === "typhoon" ? 5 : 3
-            if (e.hp <= 0) {
-              e.state = "dead"
-              e.hp = 0
-              gs.killCount++
-              grantExp(gs, e.type)
-              spawnParticles(gs, e.x + e.w / 2, e.y + e.h / 2, 20, "#fbbf24", 5)
-              spawnFloatingText(gs, e.x, e.y - 20, e.type === "boss" ? "BOSS SLAIN!" : "+EXP", "#22c55e")
-              // 50% chance to drop a health potion
-              if (e.type !== "boss" && Math.random() < 0.5) {
-                gs.potions.push({
-                  id: nextId(),
-                  x: e.x + e.w / 2 - 6,
-                  y: e.groundY - 16,
-                  w: 12, h: 16,
-                  bobOffset: Math.random() * Math.PI * 2,
-                  active: true,
-                })
-              }
-            }
             break
           }
         }
@@ -2124,12 +2449,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         const p = gs.player
         if (!gs.testMode && p.hurtTimer <= 0 && p.hp > 0 && rectOverlap(fb, p)) {
           const dmg = 10
-          p.hp = Math.max(0, p.hp - dmg)
-          p.hurtTimer = 25
           fb.active = false
-          spawnParticles(gs, p.x + p.w / 2, p.y + p.h / 2, 8, "#a855f7", 3)
-          spawnFloatingText(gs, p.x, p.y - 10, `-${dmg}`, "#ef4444")
-          gs.screenShake = 4
+          hurtPlayer(gs, dmg, fb.x + fb.w / 2, fb.type === "robotBullet" ? "#38bdf8" : "#a855f7")
         }
       }
     }
@@ -2157,6 +2478,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     gs.potions = gs.potions.filter(pot => pot.active)
   }
 
+  function updateAttackFx(gs: GameState) {
+    for (const fx of gs.attackFx) fx.timer--
+    gs.attackFx = gs.attackFx.filter(fx => fx.timer > 0)
+  }
+
   function updateParticles(gs: GameState) {
     gs.particles = gs.particles.filter(p => p.life > 0)
     for (const p of gs.particles) {
@@ -2166,15 +2492,17 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     for (const t of gs.floatingTexts) { t.y += t.vy; t.life-- }
   }
 
+  /** Clearing a level boss always grants a guaranteed weapon level + full heal. */
   function upgradeWeapon(gs: GameState) {
-    if (gs.weaponLevel < 3) {
+    if (gs.weaponLevel < MAX_WEAPON_LEVEL) {
       gs.weaponLevel++
       gs.exp = 0
-      gs.player.hp = gs.player.maxHp
+      gs.expToNext = expForWeaponLevel(gs.weaponLevel)
       spawnFloatingText(gs, gs.player.x, gs.player.y - 40, `WEAPON UP! LV ${gs.weaponLevel}`, "#fbbf24")
     } else {
-      spawnFloatingText(gs, gs.player.x, gs.player.y - 40, "LEVEL CLEAR!", "#22c55e")
+      spawnFloatingText(gs, gs.player.x, gs.player.y - 40, "MAX WEAPON!", "#22c55e")
     }
+    gs.player.hp = gs.player.maxHp
     spawnParticles(gs, gs.player.x + 12, gs.player.y + 20, 26, "#fbbf24", 6)
   }
 
@@ -2204,7 +2532,13 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     }
   }
 
-  return { stage, stateRef, startStage, inputRef, skill2Cooldown: stateRef.current.skill2Cooldown, skill3Cooldown: stateRef.current.skill3Cooldown, testMode, setTestMode: setTestModeEnabled }
+  return {
+    stage, stateRef, startStage, inputRef,
+    skill2Cooldown: stateRef.current.skill2Cooldown,
+    skill3Cooldown: stateRef.current.skill3Cooldown,
+    testMode, setTestMode: setTestModeEnabled,
+    element, setElement,
+  }
 }
 
 // ─── Canvas Renderer ──────────────────────────────────────────────────────────
@@ -2296,9 +2630,9 @@ function draw(canvas: HTMLCanvasElement | null, gs: GameState) {
   // Platforms
   drawPlatforms(ctx, gs.platforms, cam, gs.stage)
 
-  // Enemies
+  // Enemies (dead ones stay for the length of their death animation)
   for (const e of gs.enemies) {
-    if (e.state === "dead") continue
+    if (e.state === "dead" && e.deathTimer <= 0) continue
     drawEnemy(ctx, e, cam)
   }
 
@@ -2324,6 +2658,9 @@ function draw(canvas: HTMLCanvasElement | null, gs: GameState) {
 
   // AOE effects (telegraphs, bursts, hazards)
   drawAoeEffects(ctx, gs.aoeEffects, cam)
+
+  // Themed attack / hurt flourishes
+  drawAttackFx(ctx, gs.attackFx, cam)
 
   // Particles
   for (const p of gs.particles) {
@@ -2798,33 +3135,64 @@ function drawPlatforms(ctx: CanvasRenderingContext2D, platforms: Platform[], cam
   }
 }
 
+// ─── Offscreen compositor (hit flash / element tint) ─────────────────────────
+// Sprites are drawn into a scratch canvas so a tint can be composited with
+// `source-atop` — that keeps the flash on the character instead of the level.
+const FX_PAD = 76
+let scratch: HTMLCanvasElement | null = null
+let scratchCtx: CanvasRenderingContext2D | null = null
+function getScratch(w: number, h: number): CanvasRenderingContext2D | null {
+  if (typeof document === "undefined") return null
+  if (!scratch) {
+    scratch = document.createElement("canvas")
+    scratch.width = 256
+    scratch.height = 256
+  }
+  if (scratch.width < w || scratch.height < h) {
+    scratch.width = Math.max(scratch.width, w)
+    scratch.height = Math.max(scratch.height, h)
+    scratchCtx = null
+  }
+  if (!scratchCtx) {
+    scratchCtx = scratch.getContext("2d")
+    if (scratchCtx) scratchCtx.imageSmoothingEnabled = false
+  }
+  if (!scratchCtx) return null
+  scratchCtx.setTransform(1, 0, 0, 1, 0, 0)
+  scratchCtx.globalAlpha = 1
+  scratchCtx.globalCompositeOperation = "source-over"
+  scratchCtx.clearRect(0, 0, scratch.width, scratch.height)
+  return scratchCtx
+}
+
+/** Paint `color` over only the pixels already drawn in the scratch canvas. */
+function tintScratch(sctx: CanvasRenderingContext2D, color: string, alpha: number, w: number, h: number) {
+  if (alpha <= 0) return
+  sctx.save()
+  sctx.setTransform(1, 0, 0, 1, 0, 0)
+  sctx.globalCompositeOperation = "source-atop"
+  sctx.globalAlpha = alpha
+  sctx.fillStyle = color
+  sctx.fillRect(0, 0, w, h)
+  sctx.restore()
+  sctx.globalCompositeOperation = "source-over"
+  sctx.globalAlpha = 1
+}
+
+// ─── Player ──────────────────────────────────────────────────────────────────
 function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, cam: number, frame: number) {
   ensureSpritesLoaded()
   const sx = Math.round(p.x - cam)
-  const sy = Math.round(p.y)
+  const el = ELEMENTS[p.element]
   // Wizard sprite faces left natively, so flip horizontally when moving right
   const flip = p.facing === 1
 
-  // Blink when hurt
-  const blinkOn = p.hurtTimer > 0 && Math.floor(p.hurtTimer / 4) % 2 === 0
-  if (blinkOn) return
-
-  // Determine animation frame from sprite sheet
-  let frameIndex = 0
-  if (p.state === "cast") {
-    // Hold the single release/recoil frame so the arm doesn't scrub through the
-    // swing animation while the projectile is already in flight
-    frameIndex = 11
-  } else if (p.state === "jump") {
-    frameIndex = 1
-  } else if (p.state === "run") {
-    // Run: cycle walk frames 0-5
-    frameIndex = Math.floor(frame / 6) % 6
-  } else {
-    // Idle: static character frame (first frame of the sheet)
-    frameIndex = 0
-  }
-  frameIndex = Math.max(0, Math.min(WIZARD_FRAME_COUNT - 1, frameIndex))
+  // Cast progress 0→1, used to swing the wand and pulse the aura
+  const castT = p.castTimer > 0 ? 1 - p.castTimer / Math.max(1, p.castMax) : 0
+  const hurtT = p.hurtTimer > 0 ? p.hurtTimer / 28 : 0
+  // Recoil away from the hit, easing back out
+  const recoil = hurtT > 0 ? p.hurtDir * hurtT * 7 : 0
+  const tilt = hurtT > 0 ? p.hurtDir * hurtT * 0.22 : 0
 
   // Shadow under sprite
   ctx.globalAlpha = 0.3
@@ -2832,53 +3200,91 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, cam: number, frame
   ctx.fillRect(sx + p.w / 2 - 12, p.y + p.h - 3, 24, 4)
   ctx.globalAlpha = 1
 
-  // Draw wizard sprite aligned so feet sit on the hitbox bottom; the sprite
-  // frame has ~6px of empty space at the bottom (content ends at y=41), so push
-  // it down by that much to keep the wizard's feet planted on the ground
+  // Elemental aura that swells while casting
+  const auraR = 16 + castT * 16
+  ctx.globalAlpha = (p.castTimer > 0 ? 0.28 + Math.sin(frame * 0.4) * 0.08 : 0.12)
+  ctx.fillStyle = el.colors.primary
+  ctx.beginPath()
+  ctx.arc(sx + p.w / 2 + recoil, p.y + p.h / 2, auraR, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.globalAlpha = 1
+
+  // Determine animation frame from sprite sheet
+  let frameIndex = 0
+  if (p.state === "cast") {
+    // Wind up on frames 8-10, then hold the release frame
+    frameIndex = castT < 0.45 ? 8 + Math.floor(castT / 0.15) : 11
+  } else if (p.state === "hurt") {
+    frameIndex = 1
+  } else if (p.state === "jump") {
+    frameIndex = 1
+  } else if (p.state === "run") {
+    frameIndex = Math.floor(frame / 6) % 6
+  } else {
+    frameIndex = 0
+  }
+  frameIndex = Math.max(0, Math.min(WIZARD_FRAME_COUNT - 1, frameIndex))
+
+  // Sprite frames have ~6px of empty space at the bottom; push down to plant feet
   const drawX = sx + p.w / 2 - WIZARD_SPRITE_W / 2
   const drawY = p.y + p.h - WIZARD_SPRITE_H + 6
 
-  if (spritesLoaded && wizardImg) {
-    ctx.save()
+  const sctx = getScratch(WIZARD_SPRITE_W + 8, WIZARD_SPRITE_H + 8)
+  if (spritesLoaded && wizardImg && sctx) {
+    sctx.save()
     if (flip) {
-      ctx.translate(drawX + WIZARD_SPRITE_W, drawY)
-      ctx.scale(-1, 1)
-      ctx.drawImage(wizardImg, frameIndex * WIZARD_SPRITE_W, 0, WIZARD_SPRITE_W, WIZARD_SPRITE_H, 0, 0, WIZARD_SPRITE_W, WIZARD_SPRITE_H)
+      sctx.translate(4 + WIZARD_SPRITE_W, 4)
+      sctx.scale(-1, 1)
+      sctx.drawImage(wizardImg, frameIndex * WIZARD_SPRITE_W, 0, WIZARD_SPRITE_W, WIZARD_SPRITE_H, 0, 0, WIZARD_SPRITE_W, WIZARD_SPRITE_H)
     } else {
-      ctx.drawImage(wizardImg, frameIndex * WIZARD_SPRITE_W, 0, WIZARD_SPRITE_W, WIZARD_SPRITE_H, drawX, drawY, WIZARD_SPRITE_W, WIZARD_SPRITE_H)
+      sctx.drawImage(wizardImg, frameIndex * WIZARD_SPRITE_W, 0, WIZARD_SPRITE_W, WIZARD_SPRITE_H, 4, 4, WIZARD_SPRITE_W, WIZARD_SPRITE_H)
     }
+    sctx.restore()
+
+    // Element robe tint (fire keeps the sheet's native colours)
+    if (p.element !== "fire") {
+      tintScratch(sctx, el.colors.primary, 0.34, WIZARD_SPRITE_W + 8, WIZARD_SPRITE_H + 8)
+    }
+    // Cast glow, then the white hit flash on top
+    if (p.castTimer > 0) tintScratch(sctx, el.colors.core, 0.18 + castT * 0.2, WIZARD_SPRITE_W + 8, WIZARD_SPRITE_H + 8)
+    if (p.flashTimer > 0) tintScratch(sctx, "#ffffff", Math.min(0.85, p.flashTimer / 12), WIZARD_SPRITE_W + 8, WIZARD_SPRITE_H + 8)
+
+    ctx.save()
+    ctx.translate(drawX + WIZARD_SPRITE_W / 2 + recoil, drawY + WIZARD_SPRITE_H / 2)
+    ctx.rotate(tilt)
+    // Flicker while invulnerable so the i-frames read
+    ctx.globalAlpha = p.hurtTimer > 0 && Math.floor(p.hurtTimer / 3) % 2 === 0 ? 0.55 : 1
+    ctx.drawImage(scratch!, 0, 0, WIZARD_SPRITE_W + 8, WIZARD_SPRITE_H + 8,
+      -WIZARD_SPRITE_W / 2 - 4, -WIZARD_SPRITE_H / 2 - 4, WIZARD_SPRITE_W + 8, WIZARD_SPRITE_H + 8)
+    ctx.globalAlpha = 1
     ctx.restore()
   } else {
     // Fallback blocky wizard while images load
-    ctx.fillStyle = PALETTE.wizardRobe
-    ctx.fillRect(sx + 2, sy + 14, 20, 22)
+    const sy = Math.round(p.y)
+    ctx.fillStyle = el.colors.dark
+    ctx.fillRect(sx + 2 + recoil, sy + 14, 20, 22)
     ctx.fillStyle = PALETTE.wizardSkin
-    ctx.fillRect(sx + 5, sy + 6, 14, 14)
-    ctx.fillStyle = PALETTE.wizardHat
-    ctx.fillRect(sx + 3, sy, 18, 8)
-    ctx.fillRect(sx + 7, sy - 8, 10, 10)
+    ctx.fillRect(sx + 5 + recoil, sy + 6, 14, 14)
+    ctx.fillStyle = el.colors.primary
+    ctx.fillRect(sx + 3 + recoil, sy, 18, 8)
+    ctx.fillRect(sx + 7 + recoil, sy - 8, 10, 10)
+  }
+
+  // Wand tip spark that tracks the cast
+  if (p.castTimer > 0) {
+    const tipX = sx + p.w / 2 + p.facing * (12 + castT * 10) + recoil
+    const tipY = p.y + 8 - castT * 6
+    ctx.globalAlpha = 0.5 + Math.sin(frame * 0.8) * 0.3
+    ctx.fillStyle = el.colors.core
+    ctx.beginPath()
+    ctx.arc(tipX, tipY, 3 + castT * 4, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalAlpha = 1
   }
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, cam: number) {
-  const sx = Math.round(e.x - cam)
-  const sy = Math.round(e.y)
-  if (sx + e.w < -20 || sx > CANVAS_W + 20) return
-
-  const flip = e.facing === 1
-  const hover = (e.type === "angel" || e.type === "seraph" || e.type === "jellyfish" || e.type === "virus") ? Math.sin(e.animFrame * 0.6) * 3 : 0
-  ctx.save()
-  if (flip) { ctx.translate(sx + e.w, sy + hover); ctx.scale(-1, 1) } else { ctx.translate(sx, sy + hover) }
-
-  const blinkOn = e.hurtTimer > 0 && Math.floor(e.hurtTimer / 3) % 2 === 0
-  if (blinkOn) { ctx.restore(); return }
-
-  // Shadow
-  ctx.globalAlpha = 0.3
-  ctx.fillStyle = "#000"
-  ctx.fillRect(-2, e.h - 4 + (e.type === "angel" || e.type === "seraph" ? 0 : 0), e.w + 4, 4)
-  ctx.globalAlpha = 1
-
+// ─── Enemies ─────────────────────────────────────────────────────────────────
+function drawEnemyBody(ctx: CanvasRenderingContext2D, e: Enemy) {
   if (e.type === "goblin") drawGoblin(ctx, e)
   else if (e.type === "orc") drawOrc(ctx, e)
   else if (e.type === "skeleton") drawSkeleton(ctx, e)
@@ -2892,17 +3298,116 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, cam: number) {
   else if (e.type === "lavaGolem") drawLavaGolem(ctx, e)
   else if (e.type === "virus") drawVirus(ctx, e)
   else if (e.type === "firewall") drawFirewall(ctx, e)
+}
 
+/** 0→1 through the current swing; used to lean back then lunge forward. */
+export function attackProgress(e: Enemy): number {
+  if (e.state !== "attack" || e.attackAnimMax <= 0) return 0
+  return clamp(1 - e.attackAnim / e.attackAnimMax, 0, 1)
+}
+
+function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, cam: number) {
+  const sx = Math.round(e.x - cam)
+  const sy = Math.round(e.y)
+  if (sx + e.w < -80 || sx > CANVAS_W + 80) return
+
+  const flip = e.facing === 1
+  const hover = (e.type === "angel" || e.type === "seraph" || e.type === "jellyfish" || e.type === "virus")
+    ? Math.sin(e.animFrame * 0.6) * 3 : 0
+
+  // Attack pose: coil backwards during wind-up, punch forwards on the strike
+  const t = attackProgress(e)
+  let lunge = 0
+  let crouch = 0
+  let lean = 0
+  if (e.state === "attack") {
+    if (e.attackPhase === "windup") {
+      lunge = -e.facing * t * 5
+      crouch = t * 3
+      lean = -e.facing * t * 0.16
+    } else {
+      const punch = Math.max(0, 1 - t * 2.2)
+      lunge = e.facing * punch * 9
+      crouch = -punch * 2
+      lean = e.facing * punch * 0.2
+    }
+  }
+
+  // Hurt pose: knocked away from the hit and tilted
+  const hurtT = e.hurtTimer > 0 ? e.hurtTimer / 18 : 0
+  const recoil = hurtT > 0 ? e.hurtDir * hurtT * 6 : 0
+  const hurtTilt = hurtT > 0 ? e.hurtDir * hurtT * 0.25 : 0
+  const jitter = hurtT > 0.5 ? (Math.random() - 0.5) * 2 : 0
+
+  // Death dissolve: fade, drift up and fall over
+  const dying = e.state === "dead"
+  if (dying && e.deathTimer <= 0) return
+  const deathT = dying ? 1 - e.deathTimer / 26 : 0
+
+  const pw = e.w + FX_PAD * 2
+  const ph = e.h + FX_PAD * 2
+  const sctx = getScratch(pw, ph)
+  if (!sctx) return
+
+  sctx.save()
+  if (flip) { sctx.translate(FX_PAD + e.w, FX_PAD); sctx.scale(-1, 1) } else { sctx.translate(FX_PAD, FX_PAD) }
+  drawEnemyBody(sctx, e)
+  sctx.restore()
+
+  // Chilled (water element) reads as a blue wash; hits flash white
+  if (e.slowTimer > 0) tintScratch(sctx, "#7dd3fc", 0.35, pw, ph)
+  if (e.flashTimer > 0) tintScratch(sctx, "#ffffff", Math.min(0.9, e.flashTimer / 10), pw, ph)
+  if (dying) tintScratch(sctx, "#fbbf24", 0.4 + deathT * 0.4, pw, ph)
+
+  ctx.save()
+  const cx = sx + e.w / 2 + lunge + recoil + jitter
+  const cy = sy + hover + e.h / 2 + crouch - (dying ? deathT * 12 : 0)
+  ctx.translate(cx, cy)
+  ctx.rotate(lean + hurtTilt + (dying ? deathT * 1.1 * e.hurtDir * -1 : 0))
+  if (dying) ctx.scale(1 + deathT * 0.25, 1 - deathT * 0.15)
+  ctx.globalAlpha = dying ? Math.max(0, 1 - deathT) : 1
+
+  // Shadow (unrotated-ish, good enough at these sizes)
+  if (!dying) {
+    ctx.globalAlpha = 0.3
+    ctx.fillStyle = "#000"
+    ctx.fillRect(-e.w / 2 - 2, e.h / 2 - 4, e.w + 4, 4)
+    ctx.globalAlpha = 1
+  }
+
+  ctx.drawImage(scratch!, 0, 0, pw, ph, -e.w / 2 - FX_PAD, -e.h / 2 - FX_PAD, pw, ph)
   ctx.restore()
+  ctx.globalAlpha = 1
+
+  // Wind-up telegraph ring so incoming attacks are readable
+  if (e.state === "attack" && e.attackPhase === "windup" && t > 0.5) {
+    const [fxA] = e.type === "boss" ? bossFxColors(e.bossKind ?? "darklord") : ENEMY_FX_COLORS[e.type]
+    ctx.globalAlpha = (t - 0.5) * 0.8
+    ctx.strokeStyle = fxA
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(sx + e.w / 2, sy + hover + e.h / 2, e.w * 0.75 + (1 - t) * 10, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 1
+  }
 
   // HP bar above enemy
-  if (e.hp < e.maxHp) {
+  if (!dying && e.hp < e.maxHp) {
     const bw = e.w + 8, bh = 4
     const bx = sx - 4, by = sy - 10
     ctx.fillStyle = "#1f2937"
     ctx.fillRect(bx, by, bw, bh)
     ctx.fillStyle = e.hp / e.maxHp > 0.5 ? "#22c55e" : e.hp / e.maxHp > 0.25 ? "#f59e0b" : "#ef4444"
     ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), bh)
+  }
+  // Chill icon
+  if (!dying && e.slowTimer > 0) {
+    ctx.fillStyle = "#7dd3fc"
+    ctx.globalAlpha = 0.7 + Math.sin(e.animFrame * 0.8) * 0.3
+    ctx.fillRect(sx + e.w / 2 - 1, sy - 18, 2, 6)
+    ctx.fillRect(sx + e.w / 2 - 3, sy - 16, 6, 2)
+    ctx.globalAlpha = 1
   }
 }
 
@@ -3611,6 +4116,28 @@ function drawBoss(ctx: CanvasRenderingContext2D, e: Enemy) {
   ctx.fillRect(12, 58, 16, 8)
   ctx.fillRect(36, 58, 16, 8)
 
+  // Channelling the poison nova: a void orb swells above him
+  if ((e.specialTelegraph ?? 0) > 0) {
+    const ch = 1 - (e.specialTelegraph ?? 0) / 90
+    ctx.globalAlpha = 0.5 + Math.sin((e.specialTelegraph || 0) * 0.3) * 0.3
+    ctx.fillStyle = "#a855f7"
+    ctx.beginPath()
+    ctx.arc(32, -20 - ch * 6, 8 + ch * 12, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = "#e9d5ff"
+    ctx.beginPath()
+    ctx.arc(32, -20 - ch * 6, 3 + ch * 5, 0, Math.PI * 2)
+    ctx.fill()
+    // Motes spiralling inward
+    ctx.fillStyle = "#7e22ce"
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2 + ch * 6
+      const r = 30 - ch * 18
+      ctx.fillRect(32 + Math.cos(ang) * r - 2, -20 + Math.sin(ang) * r - 2, 4, 4)
+    }
+    ctx.globalAlpha = 1
+  }
+
   // Phase 2 cracks
   if (phase2) {
     ctx.fillStyle = "#fef08a"
@@ -3622,6 +4149,14 @@ function drawBoss(ctx: CanvasRenderingContext2D, e: Enemy) {
 
 function drawMuska(ctx: CanvasRenderingContext2D, e: Enemy) {
   const phase2 = e.phase === 2
+  const attacking = e.state === "attack"
+  const windup = attacking && e.attackPhase === "windup"
+  const t = attackProgress(e)
+  const casting = (e.specialTelegraph ?? 0) > 0
+  // Muska levels his pistol on the wind-up, then it kicks on the shot
+  const aim = attacking ? (windup ? -6 * t : 4 * Math.max(0, 1 - t * 2.4)) : 0
+  const kick = attacking && !windup ? Math.max(0, 1 - t * 3) * 6 : 0
+
   // White uniform
   ctx.fillStyle = "#f8fafc"
   ctx.fillRect(10, 16, 44, 42)
@@ -3635,27 +4170,68 @@ function drawMuska(ctx: CanvasRenderingContext2D, e: Enemy) {
   // Hair
   ctx.fillStyle = "#78350f"
   ctx.fillRect(14, 2, 36, 5)
-  // Glasses
-  ctx.fillStyle = "#111827"
+  // Glasses — flare white when he takes aim
+  ctx.fillStyle = windup || casting ? "#e0f2fe" : "#111827"
   ctx.fillRect(18, 8, 10, 5)
   ctx.fillRect(36, 8, 10, 5)
+  ctx.fillStyle = "#111827"
   ctx.fillRect(28, 10, 8, 2)
-  // Arms / gun
+  // Off arm
   ctx.fillStyle = "#f8fafc"
   ctx.fillRect(2, 22, 10, 24)
-  ctx.fillRect(52, 22, 10, 24)
-  // Gun
+  // Gun arm — raises to fire
+  ctx.save()
+  ctx.translate(52 - kick, 22 + aim)
+  ctx.rotate(attacking ? (windup ? -0.35 * t : 0.12) : 0)
+  ctx.fillStyle = "#f8fafc"
+  ctx.fillRect(0, 0, 10, 24)
+  // Pistol
   ctx.fillStyle = "#1f2937"
-  ctx.fillRect(56, 24, 12, 8)
+  ctx.fillRect(4, 2, 14, 8)
+  ctx.fillRect(6, 10, 5, 6)
+  // Muzzle flash on the shot
+  if (attacking && !windup && t < 0.35) {
+    ctx.globalAlpha = 1 - t / 0.35
+    ctx.fillStyle = "#fef08a"
+    ctx.beginPath()
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2
+      const r = i % 2 === 0 ? 12 : 5
+      ctx.lineTo(19 + Math.cos(ang) * r, 6 + Math.sin(ang) * r)
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+  // Charge glow while lining up the shot
+  if (windup) {
+    ctx.globalAlpha = 0.4 + Math.sin(e.attackAnim * 0.5) * 0.3
+    ctx.fillStyle = "#93c5fd"
+    ctx.fillRect(16, 3, 6, 6)
+    ctx.globalAlpha = 1
+  }
+  ctx.restore()
   // Legs
   ctx.fillStyle = "#e2e8f0"
   ctx.fillRect(16, 56, 12, 8)
   ctx.fillRect(36, 56, 12, 8)
-  // Telegraph indicator
-  if (e.specialTelegraph && e.specialTelegraph > 0) {
-    ctx.fillStyle = "#93c5fd"
-    ctx.globalAlpha = 0.6 + Math.sin(e.specialTelegraph * 0.3) * 0.3
-    ctx.fillRect(24, -10, 16, 4)
+
+  // Air-strike call: he raises a hand and a targeting reticle blinks overhead
+  if (casting) {
+    const pulse = 0.5 + Math.sin((e.specialTelegraph || 0) * 0.3) * 0.4
+    ctx.fillStyle = "#f8fafc"
+    ctx.fillRect(2, 6, 10, 18)          // raised signalling arm
+    ctx.globalAlpha = pulse
+    ctx.strokeStyle = "#93c5fd"
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(32, -18, 12, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(32, -32); ctx.lineTo(32, -4)
+    ctx.moveTo(18, -18); ctx.lineTo(46, -18)
+    ctx.stroke()
+    ctx.lineWidth = 1
     ctx.globalAlpha = 1
   }
   // Phase 2 red eye glow
@@ -3668,16 +4244,24 @@ function drawMuska(ctx: CanvasRenderingContext2D, e: Enemy) {
 
 function drawGod(ctx: CanvasRenderingContext2D, e: Enemy) {
   const phase2 = e.phase === 2
+  const attacking = e.state === "attack"
+  const windup = attacking && e.attackPhase === "windup"
+  const t = attackProgress(e)
+  const casting = (e.specialTelegraph ?? 0) > 0
   const pulse = Math.sin(e.animFrame * 0.8) * 4
+  // Arms sweep up while smiting, wings flare wide on the strike
+  const armRaise = attacking ? (windup ? -14 * t : -4) : casting ? -16 : 0
+  const wingSpread = attacking && !windup ? Math.max(0, 1 - t * 2) * 8 : casting ? 6 : 0
+
   // Radiant aura
-  ctx.globalAlpha = 0.25 + Math.abs(Math.sin(e.animFrame * 0.5)) * 0.15
+  ctx.globalAlpha = 0.25 + Math.abs(Math.sin(e.animFrame * 0.5)) * 0.15 + (casting ? 0.2 : 0)
   ctx.fillStyle = phase2 ? "#f59e0b" : "#fde68a"
   ctx.fillRect(-10 - pulse, -10 - pulse, e.w + 20 + pulse * 2, e.h + 20 + pulse * 2)
   ctx.globalAlpha = 1
   // Wings
   ctx.fillStyle = "#ffffff"
-  ctx.fillRect(-14, 14, 18, 40)
-  ctx.fillRect(e.w - 4, 14, 18, 40)
+  ctx.fillRect(-14 - wingSpread, 14 - wingSpread / 2, 18, 40 + wingSpread)
+  ctx.fillRect(e.w - 4 + wingSpread, 14 - wingSpread / 2, 18, 40 + wingSpread)
   // Body / robe
   ctx.fillStyle = "#fef3c7"
   ctx.fillRect(12, 14, 40, 44)
@@ -3687,30 +4271,51 @@ function drawGod(ctx: CanvasRenderingContext2D, e: Enemy) {
   // Head
   ctx.fillStyle = "#fde68a"
   ctx.fillRect(18, 2, 28, 14)
-  // Halo
+  // Halo — spins up while casting
   ctx.fillStyle = "#fbbf24"
-  ctx.fillRect(10, -6, 44, 6)
-  // Eyes
-  ctx.fillStyle = phase2 ? "#ef4444" : "#1e1b4b"
+  const haloW = 44 + (casting ? Math.sin((e.specialTelegraph || 0) * 0.25) * 8 : 0)
+  ctx.fillRect(32 - haloW / 2, -6, haloW, 6)
+  // Eyes — blaze white when judgement is coming
+  ctx.fillStyle = casting || windup ? "#ffffff" : phase2 ? "#ef4444" : "#1e1b4b"
   ctx.fillRect(24, 7, 4, 4)
   ctx.fillRect(38, 7, 4, 4)
   // Arms
   ctx.fillStyle = "#fef3c7"
-  ctx.fillRect(2, 20, 10, 26)
-  ctx.fillRect(52, 20, 10, 26)
-  // Hands
+  ctx.fillRect(2, 20 + armRaise, 10, 26)
+  ctx.fillRect(52, 20 + armRaise, 10, 26)
+  // Hands, holding gathering light
   ctx.fillStyle = "#fbbf24"
-  ctx.fillRect(-2, 42, 10, 10)
-  ctx.fillRect(56, 42, 10, 10)
+  ctx.fillRect(-2, 42 + armRaise, 10, 10)
+  ctx.fillRect(56, 42 + armRaise, 10, 10)
+  if (attacking || casting) {
+    const g = 0.5 + Math.sin((e.attackAnim || e.specialTelegraph || 0) * 0.4) * 0.4
+    ctx.globalAlpha = g
+    ctx.fillStyle = "#ffffff"
+    ctx.beginPath(); ctx.arc(3, 46 + armRaise, 8, 0, Math.PI * 2); ctx.fill()
+    ctx.beginPath(); ctx.arc(61, 46 + armRaise, 8, 0, Math.PI * 2); ctx.fill()
+    ctx.globalAlpha = 1
+  }
   // Legs
   ctx.fillStyle = "#f5e6c8"
   ctx.fillRect(18, 56, 10, 8)
   ctx.fillRect(36, 56, 10, 8)
-  // Telegraph indicator
-  if (e.specialTelegraph && e.specialTelegraph > 0) {
-    ctx.fillStyle = "#fbbf24"
-    ctx.globalAlpha = 0.6 + Math.sin(e.specialTelegraph * 0.3) * 0.3
-    ctx.fillRect(24, -14, 16, 4)
+
+  // Judgement beam gathering above him while a skill is telegraphed
+  if (casting) {
+    const a = 0.35 + Math.sin((e.specialTelegraph || 0) * 0.3) * 0.25
+    ctx.globalAlpha = a
+    ctx.fillStyle = "#fef08a"
+    ctx.fillRect(26, -68, 12, 64)
+    ctx.globalAlpha = a * 0.6
+    ctx.fillRect(20, -68, 24, 64)
+    ctx.globalAlpha = 1
+  }
+  // Strike flash: pillars of light slam down beside him
+  if (attacking && !windup && t < 0.4) {
+    ctx.globalAlpha = (1 - t / 0.4) * 0.8
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(-16, -58, 8, 118)
+    ctx.fillRect(e.w + 8, -58, 8, 118)
     ctx.globalAlpha = 1
   }
 }
@@ -3797,6 +4402,23 @@ function drawLeviathan(ctx: CanvasRenderingContext2D, e: Enemy) {
   ctx.fillStyle = "#0c4a6e"
   ctx.fillRect(12, 56, 16, 8)
   ctx.fillRect(36, 56, 16, 8)
+
+  // Channelling the abyssal nova: water spirals up around him
+  if ((e.specialTelegraph ?? 0) > 0) {
+    const ch = 1 - (e.specialTelegraph ?? 0) / 90
+    ctx.globalAlpha = 0.45 + Math.sin((e.specialTelegraph || 0) * 0.3) * 0.25
+    ctx.fillStyle = "#38bdf8"
+    for (let i = 0; i < 10; i++) {
+      const ang = i * 0.9 + ch * 8
+      const yy = 60 - i * 9 - ch * 14
+      ctx.fillRect(32 + Math.cos(ang) * (22 - i) - 3, yy, 6, 6)
+    }
+    ctx.fillStyle = "#e0f2fe"
+    ctx.beginPath()
+    ctx.arc(32, -18, 6 + ch * 8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
   // Phase 2 glowing cracks
   if (phase2) {
     ctx.fillStyle = "#7dd3fc"
@@ -3888,6 +4510,22 @@ function drawIfrit(ctx: CanvasRenderingContext2D, e: Enemy) {
   ctx.fillStyle = "#450a0a"
   ctx.fillRect(12, 56, 16, 8)
   ctx.fillRect(36, 56, 16, 8)
+
+  // Channelling the eruption: the ground splits and fire jets climb his body
+  if ((e.specialTelegraph ?? 0) > 0) {
+    const ch = 1 - (e.specialTelegraph ?? 0) / 90
+    ctx.globalAlpha = 0.5 + Math.sin((e.specialTelegraph || 0) * 0.35) * 0.3
+    ctx.fillStyle = PALETTE.lava
+    for (let i = 0; i < 7; i++) {
+      const xx = 2 + i * 9
+      const hh = 8 + ((i * 37) % 17) + ch * 26
+      ctx.fillRect(xx, 64 - hh, 5, hh)
+    }
+    ctx.fillStyle = PALETTE.lavaBright
+    for (let i = 0; i < 5; i++) ctx.fillRect(6 + i * 13, 62 - ch * 40 - i * 4, 3, 6)
+    ctx.globalAlpha = 1
+  }
+
   // Phase 2: extra fire jets on shoulders
   if (phase2) {
     ctx.fillStyle = PALETTE.lava
@@ -3983,6 +4621,24 @@ function drawAI(ctx: CanvasRenderingContext2D, e: Enemy) {
   ctx.fillStyle = "#111827"
   ctx.fillRect(12, 56, 16, 8)
   ctx.fillRect(36, 56, 16, 8)
+
+  // Compiling an attack: holographic rings and a scan sweep over the screen
+  if ((e.specialTelegraph ?? 0) > 0) {
+    const ch = 1 - (e.specialTelegraph ?? 0) / 90
+    ctx.globalAlpha = 0.5 + Math.sin((e.specialTelegraph || 0) * 0.3) * 0.3
+    ctx.strokeStyle = PALETTE.cyber
+    ctx.lineWidth = 2
+    for (let ring = 0; ring < 3; ring++) {
+      ctx.beginPath()
+      ctx.ellipse(32, 30, 26 + ring * 8 + ch * 10, 8 + ring * 3, 0, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    ctx.lineWidth = 1
+    ctx.fillStyle = PALETTE.circuitBright
+    ctx.fillRect(12, 18 + ((e.animFrame * 4) % 28), 40, 2)
+    ctx.globalAlpha = 1
+  }
+
   // Phase 2: glitch fragments
   if (phase2) {
     ctx.fillStyle = "#ef4444"
@@ -4039,14 +4695,18 @@ function drawFireball(ctx: CanvasRenderingContext2D, fb: Fireball, cam: number) 
   const type = fb.type ?? (fb.fromPlayer ? "fireball" : "enemy")
 
   if (fb.fromPlayer) {
+    const el = ELEMENTS[fb.element ?? "fire"]
+    const col = el.colors
+    const cx = sx + fb.w / 2
+    const cy = sy + fb.h / 2
+
     if (type === "fireball") {
-      // Animated fireball sprite from the user's GIF
-      const fbFrame = Math.floor(frame / 4) % FIREBALL_FRAME_COUNT
-      if (spritesLoaded && fireballImg) {
+      if (el.id === "fire" && spritesLoaded && fireballImg) {
+        // Animated fireball sprite sheet
+        const fbFrame = Math.floor(frame / 4) % FIREBALL_FRAME_COUNT
         ctx.save()
-        const drawX = sx + fb.w / 2 - FIREBALL_SPRITE_W / 2
-        const drawY = sy + fb.h / 2 - FIREBALL_SPRITE_H / 2
-        // Flip horizontally when traveling left so the fireball head leads
+        const drawX = cx - FIREBALL_SPRITE_W / 2
+        const drawY = cy - FIREBALL_SPRITE_H / 2
         if (fb.vx < 0) {
           ctx.translate(drawX + FIREBALL_SPRITE_W, drawY)
           ctx.scale(-1, 1)
@@ -4055,118 +4715,160 @@ function drawFireball(ctx: CanvasRenderingContext2D, fb: Fireball, cam: number) 
           ctx.drawImage(fireballImg, fbFrame * FIREBALL_SPRITE_W, 0, FIREBALL_SPRITE_W, FIREBALL_SPRITE_H, drawX, drawY, FIREBALL_SPRITE_W, FIREBALL_SPRITE_H)
         }
         ctx.restore()
-      } else {
-        // Fallback blocky fireball while sprites load
-        ctx.globalAlpha = 0.35 * flicker
-        ctx.fillStyle = "#f97316"
-        ctx.fillRect(sx - 3, sy - 1, fb.w + 6, fb.h + 2)
+      } else if (el.id === "water") {
+        // Aqua bolt: a streaming jet of water with a droplet head
+        const dir = Math.sign(fb.vx) || 1
+        ctx.globalAlpha = 0.4 * flicker
+        ctx.fillStyle = col.primary
+        ctx.fillRect(cx - dir * 22, cy - fb.h / 2 - 2, 22, fb.h + 4)
         ctx.globalAlpha = 1
-        ctx.fillStyle = PALETTE.fireball
-        ctx.fillRect(sx, sy + 2, fb.w, fb.h - 4)
-        ctx.fillStyle = PALETTE.fireballCore
-        ctx.fillRect(sx + 2, sy + 3, fb.w - 6, fb.h - 6)
+        ctx.fillStyle = col.secondary
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, fb.w * 0.6, fb.h * 0.55, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = col.core
+        ctx.beginPath()
+        ctx.ellipse(cx + dir * 2, cy - 1, fb.w * 0.28, fb.h * 0.28, 0, 0, Math.PI * 2)
+        ctx.fill()
+        // Trailing spray
+        ctx.globalAlpha = 0.5
+        ctx.fillStyle = col.aura
+        for (let i = 1; i <= 3; i++) ctx.fillRect(cx - dir * (8 * i), cy - 2 + Math.sin(frame * 0.4 + i) * 3, 3, 3)
+        ctx.globalAlpha = 1
+      } else {
+        // Light lance: a piercing spear of light
+        const dir = Math.sign(fb.vx) || 1
+        ctx.save()
+        ctx.translate(cx, cy)
+        ctx.scale(dir, 1)
+        ctx.globalAlpha = 0.35 * flicker
+        ctx.fillStyle = col.primary
+        ctx.fillRect(-26, -fb.h / 2 - 3, 40, fb.h + 6)
+        ctx.globalAlpha = 1
+        ctx.fillStyle = col.secondary
+        ctx.beginPath()
+        ctx.moveTo(fb.w * 0.9, 0)
+        ctx.lineTo(-fb.w * 0.6, -fb.h * 0.5)
+        ctx.lineTo(-fb.w * 1.4, 0)
+        ctx.lineTo(-fb.w * 0.6, fb.h * 0.5)
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = col.core
+        ctx.fillRect(-fb.w * 0.7, -1.5, fb.w * 1.5, 3)
+        ctx.restore()
       }
     } else if (type === "rain") {
-      // Meteor glow
+      // Falling projectile with a long trail — meteor / rain shard / star
       const headW = fb.w + 4
       const headH = fb.h + 4
       ctx.globalAlpha = 0.4 * flicker
-      ctx.fillStyle = "#ef4444"
+      ctx.fillStyle = col.secondary
       ctx.fillRect(sx - 2, sy - 2, headW, headH)
-      ctx.globalAlpha = 0.7
-      ctx.fillStyle = "#f97316"
+      ctx.globalAlpha = 0.85
+      ctx.fillStyle = col.primary
       ctx.fillRect(sx, sy, fb.w, fb.h)
-      ctx.fillStyle = "#fbbf24"
+      ctx.fillStyle = col.aura
       ctx.fillRect(sx + 2, sy + 2, fb.w - 4, fb.h - 4)
-      ctx.fillStyle = "#ffffff"
+      ctx.fillStyle = col.core
       ctx.fillRect(sx + 4, sy + 4, fb.w - 8, fb.h - 8)
-      // Long meteor trail
       ctx.globalAlpha = 0.55
-      ctx.fillStyle = "#f97316"
+      ctx.fillStyle = col.primary
       const trailLen = 18 + Math.sin(frame * 0.4) * 4
-      ctx.fillRect(sx + fb.w / 2 - 2, sy - trailLen, 4, trailLen)
+      ctx.fillRect(cx - 2, sy - trailLen, 4, trailLen)
       ctx.globalAlpha = 0.3
-      ctx.fillStyle = "#fbbf24"
-      ctx.fillRect(sx + fb.w / 2 - 1, sy - trailLen * 1.4, 2, trailLen * 1.4)
+      ctx.fillStyle = col.aura
+      ctx.fillRect(cx - 1, sy - trailLen * 1.4, 2, trailLen * 1.4)
       ctx.globalAlpha = 1
-    } else if (type === "storm") {
-      // Spiral spinning bolt
-      const spin = frame * 0.4
-      const cx = sx + fb.w / 2
-      const cy = sy + fb.h / 2
-      // Glow
-      ctx.globalAlpha = 0.45 * flicker
-      ctx.fillStyle = "#f97316"
-      ctx.beginPath()
-      ctx.arc(cx, cy, fb.w * 0.8, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.globalAlpha = 1
-      // Rotating cross
-      ctx.save()
-      ctx.translate(cx, cy)
-      ctx.rotate(spin)
-      ctx.fillStyle = "#fbbf24"
-      ctx.fillRect(-fb.w / 2, -2, fb.w, 4)
-      ctx.fillRect(-2, -fb.h / 2, 4, fb.h)
-      ctx.fillStyle = "#ffffff"
-      ctx.fillRect(-fb.w / 2 + 2, -2, fb.w - 4, 4)
-      ctx.fillRect(-2, -fb.h / 2 + 2, 4, fb.h - 4)
-      ctx.restore()
-      // Trail opposite to velocity
-      ctx.globalAlpha = 0.4
-      ctx.fillStyle = "#f97316"
-      ctx.fillRect(cx - fb.vx * 4 - 3, cy - fb.vy * 4 - 3, 6, 6)
-      ctx.globalAlpha = 1
-    } else if (type === "typhoon") {
-      // Typhoon swirling spark
+    } else if (type === "storm" || type === "typhoon") {
+      // Orbiting storm spark
       const spin = frame * 0.5
-      const cx = sx + fb.w / 2
-      const cy = sy + fb.h / 2
-      const flicker2 = 0.7 + Math.sin(frame * 0.6) * 0.3
-      // Outer flame aura
-      ctx.globalAlpha = 0.35 * flicker2
-      ctx.fillStyle = "#f97316"
+      const f2 = 0.7 + Math.sin(frame * 0.6) * 0.3
+      ctx.globalAlpha = 0.35 * f2
+      ctx.fillStyle = col.primary
       ctx.beginPath()
       ctx.arc(cx, cy, fb.w * 1.1, 0, Math.PI * 2)
       ctx.fill()
-      // Core
-      ctx.globalAlpha = 0.8 * flicker2
-      ctx.fillStyle = "#fbbf24"
+      ctx.globalAlpha = 0.8 * f2
+      ctx.fillStyle = col.aura
       ctx.beginPath()
       ctx.arc(cx, cy, fb.w * 0.55, 0, Math.PI * 2)
       ctx.fill()
-      // Hot center
       ctx.globalAlpha = 1
-      ctx.fillStyle = "#ffffff"
+      ctx.fillStyle = col.core
       ctx.save()
       ctx.translate(cx, cy)
       ctx.rotate(spin)
       ctx.fillRect(-1, -fb.h * 0.35, 2, fb.h * 0.7)
       ctx.fillRect(-fb.w * 0.35, -1, fb.w * 0.7, 2)
       ctx.restore()
-      // Curved trail matching spiral direction
       ctx.globalAlpha = 0.35
-      ctx.fillStyle = "#f97316"
+      ctx.fillStyle = col.primary
       ctx.beginPath()
       ctx.arc(cx - fb.vx * 3, cy - fb.vy * 3, fb.w * 0.5, 0, Math.PI * 2)
       ctx.fill()
       ctx.globalAlpha = 1
     }
   } else {
-    const bulletColor = type === "robotBullet" ? "#38bdf8" : PALETTE.enemyFireball
-    const coreColor = type === "robotBullet" ? "#e0f2fe" : "#e9d5ff"
-    // Enemy fireball / robot bullet
+    // Enemy projectiles, themed by the shooter's level
+    const style = fb.enemyStyle
+    const bulletColor =
+      style === "trident" ? "#38bdf8" :
+      style === "shock" ? "#c084fc" :
+      style === "holy" || style === "featherslash" ? "#fde68a" :
+      style === "data" ? "#22c55e" :
+      style === "flame" ? "#f97316" :
+      type === "robotBullet" ? "#38bdf8" : PALETTE.enemyFireball
+    const coreColor =
+      style === "data" ? "#4ade80" :
+      style === "holy" || style === "featherslash" ? "#ffffff" :
+      type === "robotBullet" ? "#e0f2fe" : "#e9d5ff"
+    const cx = sx + fb.w / 2
+    const cy = sy + fb.h / 2
+
     ctx.globalAlpha = 0.35 * flicker
     ctx.fillStyle = bulletColor
     ctx.fillRect(sx - 2, sy - 2, fb.w + 4, fb.h + 4)
     ctx.globalAlpha = 1
-    ctx.fillStyle = bulletColor
-    ctx.fillRect(sx, sy + 2, fb.w, fb.h - 4)
-    ctx.fillStyle = coreColor
-    ctx.fillRect(sx + 2, sy + 3, fb.w - 6, fb.h - 6)
+
+    if (style === "featherslash" || style === "holy") {
+      // Heaven: a falling feather / holy dart
+      ctx.save()
+      ctx.translate(cx, cy)
+      ctx.rotate(Math.atan2(fb.vy, fb.vx))
+      ctx.fillStyle = bulletColor
+      ctx.fillRect(-fb.w / 2, -2, fb.w, 4)
+      ctx.fillRect(-2, -fb.h / 2, 4, fb.h)
+      ctx.fillStyle = coreColor
+      ctx.fillRect(-1, -fb.h / 2 + 1, 2, fb.h - 2)
+      ctx.restore()
+    } else if (style === "data") {
+      // Machine: a glitching data packet
+      ctx.fillStyle = bulletColor
+      ctx.fillRect(sx, sy, fb.w, fb.h)
+      ctx.fillStyle = coreColor
+      ctx.fillRect(sx + 2, sy + 2 + (frame % 3), fb.w - 4, 2)
+    } else if (style === "shock") {
+      // Deep sea: a crackling sting
+      ctx.strokeStyle = bulletColor
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(sx, cy)
+      ctx.lineTo(cx, sy + (frame % 2 ? 0 : fb.h))
+      ctx.lineTo(sx + fb.w, cy)
+      ctx.stroke()
+      ctx.lineWidth = 1
+      ctx.fillStyle = coreColor
+      ctx.fillRect(cx - 2, cy - 2, 4, 4)
+    } else {
+      ctx.fillStyle = bulletColor
+      ctx.fillRect(sx, sy + 2, fb.w, fb.h - 4)
+      ctx.fillStyle = coreColor
+      ctx.fillRect(sx + 2, sy + 3, fb.w - 6, fb.h - 6)
+    }
+    // Motion trail
     ctx.globalAlpha = 0.5
     ctx.fillStyle = bulletColor
-    ctx.fillRect(sx - fb.vx * 2, sy + 3, 6, fb.h - 6)
+    ctx.fillRect(sx - fb.vx * 2, sy + 3, 6, Math.max(2, fb.h - 6))
     ctx.globalAlpha = 1
   }
 }
@@ -4176,56 +4878,498 @@ function drawComet(ctx: CanvasRenderingContext2D, c: Comet, cam: number) {
   const sy = Math.round(c.y)
   if (sx < -80 || sx > CANVAS_W + 80 || sy > CANVAS_H + 80) return
 
+  const el = ELEMENTS[c.element]
+  const col = el.colors
   const cx = sx + c.w / 2
   const cy = sy + c.h / 2
   const frame = c.frame
   const flicker = 0.7 + Math.sin(frame * 0.3) * 0.3
 
-  // Fire aura
+  // Elemental aura
   ctx.globalAlpha = 0.35 * flicker
-  ctx.fillStyle = "#f97316"
+  ctx.fillStyle = col.primary
   ctx.fillRect(sx - 8, sy - 8, c.w + 16, c.h + 16)
   ctx.globalAlpha = 0.5 * flicker
-  ctx.fillStyle = "#fbbf24"
+  ctx.fillStyle = col.aura
   ctx.fillRect(sx - 4, sy - 4, c.w + 8, c.h + 8)
-
-  // Rock body
-  ctx.globalAlpha = 1
-  ctx.fillStyle = "#57534e"
-  ctx.fillRect(sx + 4, sy + 4, c.w - 8, c.h - 8)
-  // Rock cracks / highlights
-  ctx.fillStyle = "#78716c"
-  ctx.fillRect(sx + 10, sy + 8, c.w - 20, 6)
-  ctx.fillRect(sx + 8, sy + 20, c.w - 16, 4)
-  ctx.fillStyle = "#44403c"
-  ctx.fillRect(sx + 12, sy + 14, 8, 8)
-  ctx.fillRect(sx + c.w - 22, sy + 18, 10, 6)
-
-  // Fiery core overlay
-  ctx.globalAlpha = 0.4
-  ctx.fillStyle = "#ef4444"
-  ctx.fillRect(sx + 6, sy + 6, c.w - 12, c.h - 12)
   ctx.globalAlpha = 1
 
-  // Eyes / glow spots
-  ctx.fillStyle = "#fbbf24"
-  ctx.fillRect(sx + 10, sy + 10, 6, 6)
-  ctx.fillRect(sx + c.w - 18, sy + 12, 8, 8)
-  ctx.fillStyle = "#fef08a"
-  ctx.fillRect(sx + 12, sy + 12, 3, 3)
+  if (c.element === "water") {
+    // Glacier: a jagged iceberg
+    ctx.fillStyle = "#7dd3fc"
+    ctx.beginPath()
+    ctx.moveTo(cx, sy)
+    ctx.lineTo(sx + c.w, cy)
+    ctx.lineTo(cx + 4, sy + c.h)
+    ctx.lineTo(sx, cy + 4)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = "#e0f2fe"
+    ctx.fillRect(cx - 6, cy - 10, 8, 18)
+    ctx.fillRect(cx + 2, cy - 2, 6, 10)
+    ctx.globalAlpha = 0.6
+    ctx.fillStyle = "#0ea5e9"
+    ctx.fillRect(sx + 6, cy + 4, c.w - 14, 6)
+    ctx.globalAlpha = 1
+  } else if (c.element === "light") {
+    // Judgment: a burning star of light
+    ctx.fillStyle = col.secondary
+    ctx.beginPath()
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2 + frame * 0.05
+      const r = (i % 2 === 0 ? c.w / 2 : c.w / 4.5)
+      ctx.lineTo(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r)
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = "#ffffff"
+    ctx.beginPath()
+    ctx.arc(cx, cy, c.w / 5, 0, Math.PI * 2)
+    ctx.fill()
+  } else {
+    // Comet: a burning rock
+    ctx.fillStyle = "#57534e"
+    ctx.fillRect(sx + 4, sy + 4, c.w - 8, c.h - 8)
+    ctx.fillStyle = "#78716c"
+    ctx.fillRect(sx + 10, sy + 8, c.w - 20, 6)
+    ctx.fillRect(sx + 8, sy + 20, c.w - 16, 4)
+    ctx.fillStyle = "#44403c"
+    ctx.fillRect(sx + 12, sy + 14, 8, 8)
+    ctx.fillRect(sx + c.w - 22, sy + 18, 10, 6)
+    ctx.globalAlpha = 0.4
+    ctx.fillStyle = col.secondary
+    ctx.fillRect(sx + 6, sy + 6, c.w - 12, c.h - 12)
+    ctx.globalAlpha = 1
+    ctx.fillStyle = col.aura
+    ctx.fillRect(sx + 10, sy + 10, 6, 6)
+    ctx.fillRect(sx + c.w - 18, sy + 12, 8, 8)
+    ctx.fillStyle = col.core
+    ctx.fillRect(sx + 12, sy + 12, 3, 3)
+  }
 
-  // Long fire trail
+  // Long elemental trail
   const trailLen = 60 + Math.sin(frame * 0.25) * 10
   ctx.globalAlpha = 0.55
-  ctx.fillStyle = "#f97316"
+  ctx.fillStyle = col.primary
   ctx.fillRect(cx - 6, cy - trailLen, 12, trailLen)
   ctx.globalAlpha = 0.35
-  ctx.fillStyle = "#fbbf24"
+  ctx.fillStyle = col.aura
   ctx.fillRect(cx - 3, cy - trailLen * 1.3, 6, trailLen * 1.3)
   ctx.globalAlpha = 0.25
-  ctx.fillStyle = "#78350f"
+  ctx.fillStyle = col.dark
   ctx.fillRect(cx - 10, cy - trailLen * 0.7, 20, trailLen * 0.7)
   ctx.globalAlpha = 1
+}
+
+// ─── Themed attack / hurt animations ─────────────────────────────────────────
+// Every enemy, boss and player element has its own flourish so a swing reads as
+// part of its level: goblin claws in the forest, laser bolts over Laputa,
+// tridents in the deep sea, magma fists in the volcano, glitch spikes in the AI
+// mainframe, and so on.
+function drawAttackFx(ctx: CanvasRenderingContext2D, list: AttackFx[], cam: number) {
+  for (const fx of list) {
+    const x = Math.round(fx.x - cam)
+    const y = Math.round(fx.y)
+    if (x < -120 || x > CANVAS_W + 120) continue
+    const t = 1 - fx.timer / fx.maxTimer          // 0 → 1 over the animation
+    const fade = Math.sin(Math.PI * Math.min(1, t * 1.05))  // ease in/out alpha
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.scale(fx.facing, 1)
+    ctx.scale(fx.scale, fx.scale)
+    ctx.globalAlpha = fade
+    ctx.lineCap = "round"
+    ctx.lineJoin = "round"
+    drawAttackFxStyle(ctx, fx, t, fade)
+    ctx.restore()
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 1
+  }
+}
+
+function arcSlash(ctx: CanvasRenderingContext2D, r: number, t: number, width: number, color: string) {
+  const sweep = Math.PI * 1.05
+  const start = -sweep / 2 + t * sweep * 0.55
+  ctx.strokeStyle = color
+  ctx.lineWidth = width
+  ctx.beginPath()
+  ctx.arc(0, 0, r, start, start + sweep * (0.45 + t * 0.35))
+  ctx.stroke()
+}
+
+function drawAttackFxStyle(ctx: CanvasRenderingContext2D, fx: AttackFx, t: number, fade: number) {
+  const a = fx.color
+  const b = fx.color2
+  switch (fx.style) {
+    // ── Level 1: forest & castle ─────────────────────────────────────────────
+    case "claw": {
+      // Three raking claw marks
+      for (let i = -1; i <= 1; i++) {
+        ctx.strokeStyle = i === 0 ? b : a
+        ctx.lineWidth = 2.5 - Math.abs(i) * 0.8
+        ctx.beginPath()
+        ctx.moveTo(-8 + t * 6, -12 + i * 7)
+        ctx.quadraticCurveTo(6 + t * 8, i * 6, 16 + t * 12, 12 + i * 7)
+        ctx.stroke()
+      }
+      break
+    }
+    case "axe": {
+      // Heavy crescent cleave with a trailing after-image
+      arcSlash(ctx, 20, t, 7, a)
+      ctx.globalAlpha = fade * 0.45
+      arcSlash(ctx, 26, Math.max(0, t - 0.18), 4, b)
+      break
+    }
+    case "bone": {
+      // Thin bone sword arc plus splintering shards
+      arcSlash(ctx, 18, t, 3.5, b)
+      ctx.fillStyle = a
+      for (let i = 0; i < 4; i++) {
+        const ang = -0.9 + i * 0.55
+        const d = 14 + t * 16
+        ctx.fillRect(Math.cos(ang) * d, Math.sin(ang) * d, 4, 2)
+      }
+      break
+    }
+    case "hammer": {
+      // Ground-shattering shockwave rings
+      for (let i = 0; i < 3; i++) {
+        const r = (t * 34) + i * 9
+        ctx.globalAlpha = fade * (1 - i * 0.28) * (1 - t * 0.6)
+        ctx.strokeStyle = i === 0 ? b : a
+        ctx.lineWidth = 3 - i
+        ctx.beginPath()
+        ctx.ellipse(0, 8, r, r * 0.42, 0, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+      ctx.globalAlpha = fade
+      ctx.fillStyle = b
+      for (let i = 0; i < 5; i++) ctx.fillRect(-16 + i * 8, 4 - t * 14 - i % 2 * 4, 3, 5)
+      break
+    }
+
+    // ── Level 2: Laputa machines ─────────────────────────────────────────────
+    case "laser": {
+      // Charged beam lancing forward
+      const len = 14 + t * 46
+      ctx.globalAlpha = fade * 0.4
+      ctx.fillStyle = a
+      ctx.fillRect(0, -6, len, 12)
+      ctx.globalAlpha = fade
+      ctx.fillStyle = b
+      ctx.fillRect(0, -2, len, 4)
+      ctx.fillStyle = a
+      ctx.beginPath()
+      ctx.arc(0, 0, 7 - t * 4, 0, Math.PI * 2)
+      ctx.fill()
+      break
+    }
+    case "rotor": {
+      // Spinning blade rotor
+      ctx.strokeStyle = a
+      ctx.lineWidth = 3
+      for (let i = 0; i < 4; i++) {
+        const ang = t * 9 + (i * Math.PI) / 2
+        ctx.beginPath()
+        ctx.moveTo(Math.cos(ang) * 5, Math.sin(ang) * 5)
+        ctx.lineTo(Math.cos(ang) * (18 + t * 8), Math.sin(ang) * (18 + t * 8))
+        ctx.stroke()
+      }
+      ctx.fillStyle = b
+      ctx.beginPath()
+      ctx.arc(0, 0, 4, 0, Math.PI * 2)
+      ctx.fill()
+      break
+    }
+
+    // ── Level 3: heaven ──────────────────────────────────────────────────────
+    case "holy": {
+      // Radiant cross flare + halo ring
+      const r = 8 + t * 22
+      ctx.strokeStyle = a
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(0, 0, r, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.fillStyle = b
+      const s = 22 * (1 - t * 0.35)
+      ctx.fillRect(-2, -s, 4, s * 2)
+      ctx.fillRect(-s, -2, s * 2, 4)
+      ctx.globalAlpha = fade * 0.55
+      ctx.fillRect(-1, -s * 1.4, 2, s * 2.8)
+      break
+    }
+    case "featherslash": {
+      // A fan of holy feathers thrown forward
+      ctx.fillStyle = b
+      for (let i = -2; i <= 2; i++) {
+        const d = 8 + t * 30
+        const yy = i * 8
+        ctx.save()
+        ctx.translate(d, yy)
+        ctx.rotate(i * 0.18 + t * 0.5)
+        ctx.fillStyle = i % 2 === 0 ? b : a
+        ctx.fillRect(-5, -2, 10, 4)
+        ctx.fillRect(-2, -4, 4, 8)
+        ctx.restore()
+      }
+      break
+    }
+
+    // ── Level 4: deep sea ────────────────────────────────────────────────────
+    case "trident": {
+      // Three-prong stab
+      const reach = 10 + t * 26
+      ctx.strokeStyle = a
+      ctx.lineWidth = 3
+      for (const yy of [-9, 0, 9]) {
+        ctx.beginPath()
+        ctx.moveTo(0, yy * 0.5)
+        ctx.lineTo(reach, yy)
+        ctx.stroke()
+      }
+      ctx.fillStyle = b
+      for (const yy of [-9, 0, 9]) ctx.fillRect(reach - 3, yy - 2, 6, 4)
+      break
+    }
+    case "shock": {
+      // Branching electric arcs
+      ctx.strokeStyle = b
+      ctx.lineWidth = 2
+      for (let i = 0; i < 3; i++) {
+        ctx.globalAlpha = fade * (1 - i * 0.25)
+        ctx.beginPath()
+        let px = 0, py = 0
+        ctx.moveTo(px, py)
+        for (let k = 0; k < 5; k++) {
+          px += 7 + Math.random() * 5
+          py += (Math.random() - 0.5) * 18
+          ctx.lineTo(px, py)
+        }
+        ctx.stroke()
+      }
+      ctx.globalAlpha = fade
+      ctx.fillStyle = a
+      ctx.beginPath()
+      ctx.arc(0, 0, 6 - t * 3, 0, Math.PI * 2)
+      ctx.fill()
+      break
+    }
+    case "splash": {
+      // Water crown: a ring plus flying droplets
+      ctx.strokeStyle = a
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.arc(0, 0, 6 + t * 20, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.fillStyle = b
+      for (let i = 0; i < 7; i++) {
+        const ang = (i / 7) * Math.PI * 2 + fx.rot
+        const d = 8 + t * 26
+        ctx.beginPath()
+        ctx.arc(Math.cos(ang) * d, Math.sin(ang) * d - t * 6, 3 - t * 1.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      break
+    }
+
+    // ── Level 5: volcano ─────────────────────────────────────────────────────
+    case "flame": {
+      // Licking flame tongues
+      for (let i = 0; i < 5; i++) {
+        const ang = -0.8 + i * 0.4
+        const d = 6 + t * 26
+        ctx.fillStyle = i % 2 === 0 ? a : b
+        ctx.globalAlpha = fade * (1 - i * 0.1)
+        ctx.beginPath()
+        ctx.moveTo(Math.cos(ang) * d, Math.sin(ang) * d)
+        ctx.lineTo(Math.cos(ang) * (d + 10), Math.sin(ang) * (d + 10) - 4)
+        ctx.lineTo(Math.cos(ang) * (d + 4), Math.sin(ang) * (d + 4) + 5)
+        ctx.closePath()
+        ctx.fill()
+      }
+      break
+    }
+    case "magma": {
+      // Cracked ground with molten light bleeding out
+      ctx.strokeStyle = a
+      ctx.lineWidth = 3
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath()
+        ctx.moveTo(0, 6)
+        ctx.lineTo(i * 9 * (0.4 + t), 6 + Math.abs(i) * 3 + t * 8)
+        ctx.lineTo(i * 14 * (0.4 + t), 10 + t * 12)
+        ctx.stroke()
+      }
+      ctx.fillStyle = b
+      for (let i = 0; i < 6; i++) {
+        ctx.globalAlpha = fade * (1 - t)
+        ctx.fillRect(-18 + i * 7, 4 - t * 22 - (i % 3) * 5, 3, 3)
+      }
+      break
+    }
+
+    // ── Level 6: the machine ─────────────────────────────────────────────────
+    case "data": {
+      // Glitch blocks tearing forward
+      for (let i = 0; i < 7; i++) {
+        ctx.globalAlpha = fade * (0.4 + Math.random() * 0.6)
+        ctx.fillStyle = i % 2 === 0 ? a : b
+        ctx.fillRect(t * 26 + Math.random() * 14 - 6, -14 + i * 4, 4 + Math.random() * 12, 3)
+      }
+      break
+    }
+    case "grid": {
+      // Security laser grid snapping shut
+      ctx.strokeStyle = a
+      ctx.lineWidth = 1.5
+      const w = 30, h = 26
+      for (let i = 0; i <= 3; i++) {
+        const p = (i / 3) * 2 - 1
+        ctx.globalAlpha = fade * (0.5 + t * 0.5)
+        ctx.beginPath(); ctx.moveTo(0, p * h); ctx.lineTo(w * (0.3 + t), p * h); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(w * (0.3 + t) * ((i + 1) / 4), -h); ctx.lineTo(w * (0.3 + t) * ((i + 1) / 4), h); ctx.stroke()
+      }
+      ctx.strokeStyle = b
+      ctx.lineWidth = 2
+      ctx.strokeRect(0, -h, w * (0.3 + t), h * 2)
+      break
+    }
+
+    // ── Boss cast flourishes ─────────────────────────────────────────────────
+    case "darkcast": {
+      // Sigil of the Dark Lord: counter-rotating runic rings
+      for (let i = 0; i < 2; i++) {
+        const r = 14 + i * 9 + t * 10
+        ctx.strokeStyle = i === 0 ? b : a
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(0, 0, r, fx.rot + t * (i ? -4 : 4), fx.rot + t * (i ? -4 : 4) + Math.PI * 1.5)
+        ctx.stroke()
+      }
+      ctx.fillStyle = a
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + t * 3
+        ctx.fillRect(Math.cos(ang) * (20 + t * 8) - 2, Math.sin(ang) * (20 + t * 8) - 2, 4, 4)
+      }
+      break
+    }
+    case "gunshot": {
+      // Muzzle star and smoke puff
+      ctx.fillStyle = b
+      const s = 16 * (1 - t)
+      ctx.beginPath()
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2
+        const r = i % 2 === 0 ? s : s * 0.4
+        ctx.lineTo(Math.cos(ang) * r, Math.sin(ang) * r)
+      }
+      ctx.closePath()
+      ctx.fill()
+      ctx.globalAlpha = fade * 0.5
+      ctx.fillStyle = a
+      for (let i = 0; i < 4; i++) ctx.fillRect(6 + i * 7 + t * 16, -3 + (i % 2) * 5, 5, 4)
+      break
+    }
+    case "divinecast": {
+      // Radiating shafts of divine light with a halo
+      ctx.strokeStyle = b
+      ctx.lineWidth = 2
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2 + fx.rot
+        ctx.globalAlpha = fade * (i % 2 === 0 ? 1 : 0.5)
+        ctx.beginPath()
+        ctx.moveTo(Math.cos(ang) * 10, Math.sin(ang) * 10)
+        ctx.lineTo(Math.cos(ang) * (26 + t * 22), Math.sin(ang) * (26 + t * 22))
+        ctx.stroke()
+      }
+      ctx.globalAlpha = fade
+      ctx.strokeStyle = a
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.ellipse(0, -16, 20 - t * 4, 6, 0, 0, Math.PI * 2)
+      ctx.stroke()
+      break
+    }
+    case "tidecast": {
+      // Whirlpool spiral
+      ctx.strokeStyle = a
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      for (let i = 0; i < 46; i++) {
+        const ang = i * 0.32 + t * 5
+        const r = i * 0.75 * (0.5 + t)
+        const px = Math.cos(ang) * r
+        const py = Math.sin(ang) * r * 0.6
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py)
+      }
+      ctx.stroke()
+      ctx.fillStyle = b
+      for (let i = 0; i < 5; i++) {
+        const ang = (i / 5) * Math.PI * 2 - t * 6
+        ctx.beginPath()
+        ctx.arc(Math.cos(ang) * (18 + t * 12), Math.sin(ang) * (11 + t * 8), 3, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      break
+    }
+    case "infernocast": {
+      // Ring of fire with rising embers
+      ctx.strokeStyle = a
+      ctx.lineWidth = 4
+      ctx.beginPath()
+      ctx.ellipse(0, 10, 22 + t * 16, 8 + t * 5, 0, 0, Math.PI * 2)
+      ctx.stroke()
+      for (let i = 0; i < 9; i++) {
+        const ang = (i / 9) * Math.PI * 2
+        ctx.globalAlpha = fade * (1 - t * 0.5)
+        ctx.fillStyle = i % 2 === 0 ? b : a
+        ctx.fillRect(Math.cos(ang) * (20 + t * 12) - 2, 10 + Math.sin(ang) * 8 - t * 30, 4, 6)
+      }
+      break
+    }
+    case "systemcast": {
+      // Holographic hex rings and a scanline sweep
+      ctx.strokeStyle = a
+      ctx.lineWidth = 2
+      for (let ring = 0; ring < 2; ring++) {
+        const r = 14 + ring * 10 + t * 12
+        ctx.beginPath()
+        for (let i = 0; i <= 6; i++) {
+          const ang = (i / 6) * Math.PI * 2 + fx.rot + (ring ? -t * 2 : t * 2)
+          const px = Math.cos(ang) * r, py = Math.sin(ang) * r
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py)
+        }
+        ctx.stroke()
+      }
+      ctx.fillStyle = b
+      ctx.globalAlpha = fade * 0.7
+      for (let i = 0; i < 5; i++) ctx.fillRect(-26, -22 + i * 11 + t * 10, 52, 2)
+      break
+    }
+
+    // ── Shared impact ────────────────────────────────────────────────────────
+    case "hurt":
+    default: {
+      // Impact star: a hard flash ring with radiating sparks
+      ctx.strokeStyle = b
+      ctx.lineWidth = 2.5
+      ctx.beginPath()
+      ctx.arc(0, 0, 4 + t * 16, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.strokeStyle = a
+      ctx.lineWidth = 2
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + fx.rot
+        ctx.beginPath()
+        ctx.moveTo(Math.cos(ang) * (5 + t * 8), Math.sin(ang) * (5 + t * 8))
+        ctx.lineTo(Math.cos(ang) * (12 + t * 18), Math.sin(ang) * (12 + t * 18))
+        ctx.stroke()
+      }
+      break
+    }
+  }
 }
 
 function drawAoeEffects(ctx: CanvasRenderingContext2D, effects: AoeEffect[], cam: number) {
